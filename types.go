@@ -63,6 +63,7 @@ type Container struct {
 
 type PodSpec struct {
 	NodeName       string      `json:"nodeName,omitempty"`
+	HostNetwork    bool        `json:"hostNetwork,omitempty"`
 	Containers     []Container `json:"containers"`
 	InitContainers []Container `json:"initContainers,omitempty"`
 	Volumes        []Volume    `json:"volumes,omitempty"`
@@ -100,6 +101,7 @@ type Pod struct {
 		Reason            string            `json:"reason,omitempty"`
 		Message           string            `json:"message,omitempty"`
 		PodIP             string            `json:"podIP,omitempty"`
+		HostIP            string            `json:"hostIP,omitempty"`
 		StartTime         *time.Time        `json:"startTime,omitempty"`
 		QOSClass          string            `json:"qosClass,omitempty"`
 		Conditions        []Condition       `json:"conditions,omitempty"`

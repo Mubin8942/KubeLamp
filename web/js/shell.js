@@ -117,7 +117,7 @@ function renderTop(route) {
 }
 $('#ctxPicker').addEventListener('click', () => {
   const route = parseRoute();
-  const section = route.ctx && ['overview', 'nodes', 'workloads', 'pods', 'events', 'logs'].includes(route.section) ? route.section : 'overview';
+  const section = route.ctx && ['overview', 'nodes', 'workloads', 'pods', 'events', 'logs'].includes(route.section) ? route.section : route.section === 'tools' ? 'tools/' + (route.args[0] || '') : 'overview';
   openPop($('#ctxPicker'), [{ label: 'All clusters', on: !route.ctx, run: () => { location.hash = '#/'; } }, 'sep',
     ...S.clusters.map(c => ({
       label: shortName(c.name), on: c.name === route.ctx, icon: `<i class="dot ${c.status}"></i>`,
@@ -163,7 +163,7 @@ async function navigate() {
   renderTop(route);
   renderNav(route);
   if (route.ctx && !S.disc[route.ctx]) ensureDiscovery(route.ctx).then(() => { if (parseRoute().ctx === route.ctx) renderNav(parseRoute()); });
-  const views = { overview: viewOverview, nodes: viewNodes, node: viewNode, workloads: viewWorkloads, wl: viewWorkload, pods: viewPods, namespaces: viewNamespaces,
+  const views = { overview: viewOverview, nodes: viewNodes, node: viewNode, workloads: viewWorkloads, wl: viewWorkload, pods: viewPods, namespaces: viewNamespaces, tools: viewTools,
     pod: viewPod, events: viewEvents, logs: viewLogs, r: viewResource, o: viewObject };
   main.scrollTop = 0;
   try {

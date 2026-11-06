@@ -444,6 +444,7 @@ func (s *Server) routes() http.Handler {
 	s.terminalRoutes(mux)
 	s.pvcRoutes(mux)
 	s.overviewRoutes(mux)
+	s.connRoutes(mux)
 
 	mux.HandleFunc("GET /api/info", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"version": version, "readOnly": s.readOnly, "shell": s.shellAllowed(), "os": runtime.GOOS})

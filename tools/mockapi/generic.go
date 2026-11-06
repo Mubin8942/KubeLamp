@@ -96,6 +96,12 @@ func (c *cluster) initGeneric() {
 		{"networking.k8s.io", "v1", "networkpolicies", "NetworkPolicy", true, mk(
 			obj{"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy", "metadata": meta("payments", "default-deny", nil),
 				"spec": obj{"podSelector": obj{}, "policyTypes": []string{"Ingress"}}},
+			obj{"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy", "metadata": meta("payments", "api-egress", nil),
+				"spec": obj{"podSelector": obj{"matchLabels": obj{"app.kubernetes.io/name": "payments-api"}}, "policyTypes": []string{"Egress"},
+					"egress": []obj{
+						{"to": []obj{{"ipBlock": obj{"cidr": "172.18.1.0/24", "except": []string{"172.18.1.40/32"}}}}, "ports": []obj{{"protocol": "TCP", "port": 22, "endPort": 25}}},
+						{"ports": []obj{{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}}},
+					}}},
 		)},
 		{"gateway.networking.k8s.io", "v1", "gateways", "Gateway", true, mk(
 			obj{"apiVersion": "gateway.networking.k8s.io/v1", "kind": "Gateway", "metadata": meta("ingress", "public-gw", nil),
@@ -113,6 +119,9 @@ func (c *cluster) initGeneric() {
 			obj{"apiVersion": "cilium.io/v2", "kind": "CiliumNetworkPolicy", "metadata": meta("payments", "allow-gateway-to-api", nil),
 				"spec": obj{"endpointSelector": obj{"matchLabels": obj{"app.kubernetes.io/name": "payments-api"}},
 					"ingress": []obj{{"fromEndpoints": []obj{{"matchLabels": obj{"io.kubernetes.pod.namespace": "ingress"}}}, "toPorts": []obj{{"ports": []obj{{"port": "8080", "protocol": "TCP"}}}}}}}},
+			obj{"apiVersion": "cilium.io/v2", "kind": "CiliumNetworkPolicy", "metadata": meta("payments", "api-fqdn-egress", nil),
+				"spec": obj{"endpointSelector": obj{"matchLabels": obj{"app.kubernetes.io/name": "payments-api"}},
+					"egress": []obj{{"toFQDNs": []obj{{"matchName": "api.example.com"}}, "toPorts": []obj{{"ports": []obj{{"port": "443", "protocol": "TCP"}}}}}}}},
 		)},
 		{"external-secrets.io", "v1beta1", "externalsecrets", "ExternalSecret", true, mk(
 			obj{"apiVersion": "external-secrets.io/v1beta1", "kind": "ExternalSecret", "metadata": meta("payments", "payments-db-credentials", nil),
@@ -421,6 +430,10 @@ func status(w http.ResponseWriter, code int, msg string) {
 // generic serves get/list/put/delete/patch for every resType, plus pod get/delete,
 // node patch and pod exec. Returns false to fall through to the classic handlers.
 func (c *cluster) generic(w http.ResponseWriter, r *http.Request) bool {
+	if r.URL.Path == "/__conntestexecs" {
+		writeJSON(w, obj{"count": connExecs.Load()})
+		return true
+	}
 	if r.URL.Path == "/__dfexecs" {
 		writeJSON(w, obj{"count": dfExecs.Load()})
 		return true
@@ -651,7 +664,88 @@ func (c *cluster) serveDfExec(w http.ResponseWriter, r *http.Request, ns, pod st
 	_ = conn.WriteMessage(ws.OpBinary, append([]byte{3}, b...))
 }
 
+var connExecs atomic.Int64
+
+// fake connectivity probe: sh -c '<probe script>' sh T P id|mode|host|port|url ...
+// Behaviour: pods on the 3rd node are firewalled (everything times out); otherwise port 22 is
+// open, 23 refused, 24 times out and 25 has no route; *.invalid is a DNS failure; https checks
+// of *.example.com return 200. redis pods are distroless (no sh); ledger-worker pods have no tools.
+func (c *cluster) serveConnExec(w http.ResponseWriter, r *http.Request, ns, pod string, cmd []string) {
+	connExecs.Add(1)
+	conn, _, err := ws.Accept(w, r, "v5.channel.k8s.io", "v4.channel.k8s.io", "channel.k8s.io")
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+	var deploy, node string
+	c.mu.Lock()
+	for _, p := range c.pods {
+		if p.ns == ns && p.name == pod {
+			deploy, node = p.deploy, p.node
+		}
+	}
+	c.mu.Unlock()
+	fail := func(msg string) {
+		b, _ := json.Marshal(obj{"status": "Failure", "message": msg})
+		_ = conn.WriteMessage(ws.OpBinary, append([]byte{3}, b...))
+	}
+	if deploy == "redis" || r.URL.Query().Get("container") == "envoy" {
+		fail("OCI runtime exec failed: exec failed: unable to start container process: exec: \"sh\": executable file not found in $PATH: unknown")
+		return
+	}
+	tmo, _ := strconv.Atoi(cmd[4])
+	blocked := len(c.nodes) > 2 && node == c.nodes[2]
+	var sb strings.Builder
+	if deploy == "ledger-worker" {
+		sb.WriteString("@@tools|\n")
+	} else {
+		sb.WriteString("@@tools|nc curl \n")
+	}
+	for _, a := range cmd[6:] {
+		f := strings.SplitN(a, "|", 5)
+		id, mode, host := f[0], f[1], f[2]
+		port, _ := strconv.Atoi(f[3])
+		line := func(tool string, rc, ms int, msg string) {
+			sb.WriteString(fmt.Sprintf("@@r|%s|%s|%d|%d|%s\n", id, tool, rc, ms, msg))
+		}
+		switch {
+		case deploy == "ledger-worker":
+			line("none", 0, 0, "")
+		case strings.HasSuffix(host, ".invalid") || host == "blocked.example":
+			if mode == "http" {
+				line("curl", 6, 14, "curl: (6) Could not resolve host: "+host+" 000 0.000000")
+			} else {
+				line("nc", 1, 12, "nc: getaddrinfo for host \""+host+"\" port "+f[3]+": Name or service not known")
+			}
+		case blocked:
+			if mode == "http" {
+				line("curl", 28, tmo*1000, "curl: (28) Connection timed out after "+strconv.Itoa(tmo*1000)+" milliseconds000 0.000000")
+			} else {
+				line("nc", 1, tmo*1000, "nc: connect to "+host+" port "+f[3]+" (tcp) timed out: Operation now in progress")
+			}
+		case mode == "http":
+			line("curl", 0, 40, "200 0.012000")
+		case port == 23:
+			line("nc", 1, 3, "nc: connect to "+host+" port 23 (tcp) failed: Connection refused")
+		case port == 24:
+			line("nc", 1, tmo*1000, "nc: connect to "+host+" port 24 (tcp) timed out: Operation now in progress")
+		case port == 25:
+			line("nc", 1, 21, "nc: connect to "+host+" port 25 (tcp) failed: No route to host")
+		default:
+			line("nc", 0, 4, "Connection to "+host+" "+f[3]+" port [tcp/*] succeeded!")
+		}
+	}
+	sb.WriteString("@@end\n")
+	_ = conn.WriteMessage(ws.OpBinary, append([]byte{1}, sb.String()...))
+	b, _ := json.Marshal(obj{"status": "Success"})
+	_ = conn.WriteMessage(ws.OpBinary, append([]byte{3}, b...))
+}
+
 func (c *cluster) serveExec(w http.ResponseWriter, r *http.Request, ns, pod string) {
+	if cmd := r.URL.Query()["command"]; len(cmd) >= 7 && cmd[0] == "sh" && cmd[1] == "-c" && strings.Contains(cmd[2], "@@r|") {
+		c.serveConnExec(w, r, ns, pod, cmd)
+		return
+	}
 	if cmd := r.URL.Query()["command"]; len(cmd) >= 5 && cmd[0] == "sh" && cmd[1] == "-c" && strings.Contains(cmd[2], "df -P") {
 		c.serveDfExec(w, r, ns, pod, cmd)
 		return

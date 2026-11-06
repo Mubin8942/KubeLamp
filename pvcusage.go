@@ -71,9 +71,15 @@ var execSem = make(chan struct{}, 3)
 
 // execOnce runs a command in a container (no TTY, no stdin) and returns its output.
 func (c *Cluster) execOnce(ctx context.Context, ns, pod, container string, cmd []string, timeout time.Duration) (string, error) {
+	return c.execWith(ctx, execSem, ns, pod, container, cmd, timeout)
+}
+
+// execWith is execOnce with a caller-chosen concurrency limiter, so other features
+// (the connectivity tester) don't starve PVC usage checks.
+func (c *Cluster) execWith(ctx context.Context, sem chan struct{}, ns, pod, container string, cmd []string, timeout time.Duration) (string, error) {
 	select {
-	case execSem <- struct{}{}:
-		defer func() { <-execSem }()
+	case sem <- struct{}{}:
+		defer func() { <-sem }()
 	case <-ctx.Done():
 		return "", ctx.Err()
 	}

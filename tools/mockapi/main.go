@@ -284,7 +284,7 @@ func (c *cluster) podObj(p *pod) obj {
 				return p.deploy
 			}()}}},
 		"spec":   obj{"nodeName": p.node, "containers": ctrs, "volumes": volumes},
-		"status": obj{"phase": phase, "podIP": "10.42." + strconv.Itoa(len(p.name)%9) + "." + strconv.Itoa(len(p.name)*7%250), "qosClass": "Burstable", "containerStatuses": statuses},
+		"status": obj{"phase": phase, "podIP": "10.42." + strconv.Itoa(len(p.name)%9) + "." + strconv.Itoa(len(p.name)*7%250), "hostIP": c.nodeIP(p.node), "qosClass": "Burstable", "containerStatuses": statuses},
 	}
 	if p.status != "Pending" {
 		o["status"].(obj)["startTime"] = ts(p.created)
@@ -781,4 +781,14 @@ var pvcDf = map[string][2]int{
 	"ledger-data":  {20971520, 18245222},
 	"ledger-cache": {5242880, 1048576},
 	"ecrm-uploads": {5242880, 4876000},
+}
+
+// nodeIP matches the InternalIP the /api/v1/nodes handler reports.
+func (c *cluster) nodeIP(node string) string {
+	for i, n := range c.nodes {
+		if n == node {
+			return fmt.Sprintf("10.20.30.%d", 11+i)
+		}
+	}
+	return ""
 }
