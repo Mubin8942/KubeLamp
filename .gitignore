@@ -6,7 +6,9 @@ dist/
 *.zip
 # local state and secrets - never commit
 settings.json
-kubeconfig*
+/kubeconfig
+/kubeconfig.yaml
+/kubeconfig.yml
 *.kubeconfig
 *.pem
 *.key
