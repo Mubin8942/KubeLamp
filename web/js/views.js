@@ -48,7 +48,7 @@ async function openAccess(ctx) {
 // per-namespace problems on a cluster card: critical and warning items, worst namespaces first
 function attnBlock(c) {
   const a = c.attention;
-  if (!a || !a.namespaces) return `<div class="attn-ok">${stLabel('No namespace needs attention', 'good')}</div>`;
+  if (!a || !a.namespaces) return `<div class="attn-ok">${stLabel('All namespaces are healthy', 'good')}</div>`;
   const head = a.critical ? stLabel(`${a.critical} critical`, 'critical') + (a.warning ? ' ' + stLabel(`${a.warning} warning${a.warning === 1 ? '' : 's'}`, 'warning') : '')
     : stLabel(`${a.warning} warning${a.warning === 1 ? '' : 's'}`, 'warning');
   return `<div class="attn-box"><div class="attn-head">${head}<span class="muted">in ${a.namespaces} namespace${a.namespaces === 1 ? '' : 's'}</span></div>
