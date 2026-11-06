@@ -469,7 +469,7 @@ func (c *Client) request(ctx context.Context, method, path string, q url.Values,
 		if ctype != "" {
 			req.Header.Set("Content-Type", ctype)
 		}
-		req.Header.Set("User-Agent", "kubedeck/"+version)
+		req.Header.Set("User-Agent", "kubelamp/"+version)
 		if err := c.auth.apply(ctx, req, attempt > 0); err != nil {
 			return nil, err
 		}
@@ -532,7 +532,7 @@ func (c *Client) upgrade(ctx context.Context, path string, q url.Values, protoco
 	req.Header.Set("Sec-WebSocket-Version", "13")
 	req.Header.Set("Sec-WebSocket-Key", base64.StdEncoding.EncodeToString(key))
 	req.Header.Set("Sec-WebSocket-Protocol", strings.Join(protocols, ", "))
-	req.Header.Set("User-Agent", "kubedeck/"+version)
+	req.Header.Set("User-Agent", "kubelamp/"+version)
 	if err := c.auth.apply(ctx, req, false); err != nil {
 		return nil, "", err
 	}

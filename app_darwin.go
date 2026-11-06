@@ -19,7 +19,7 @@ func inAppBundle() bool {
 
 func logFilePath() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, "Library", "Logs", "KubeDeck.log")
+	return filepath.Join(home, "Library", "Logs", "KubeLamp.log")
 }
 
 // fixPath: apps started from Finder get a bare PATH (/usr/bin:/bin:…), so kubeconfig
@@ -58,7 +58,7 @@ func fixPath() {
 // detachFromLauncher: when opened from Finder, run the server as a background process
 // and let the launcher exit. Double-clicking the app again then just reopens the browser.
 func detachFromLauncher(args []string) bool {
-	if !inAppBundle() || os.Getenv("KUBEDECK_CHILD") != "" {
+	if !inAppBundle() || os.Getenv("KUBELAMP_CHILD") != "" {
 		return false
 	}
 	exe, err := os.Executable()
@@ -71,7 +71,7 @@ func detachFromLauncher(args []string) bool {
 		return false
 	}
 	cmd := exec.Command(exe, args...)
-	cmd.Env = append(os.Environ(), "KUBEDECK_CHILD=1")
+	cmd.Env = append(os.Environ(), "KUBELAMP_CHILD=1")
 	cmd.Stdout, cmd.Stderr = lf, lf
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {

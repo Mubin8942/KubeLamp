@@ -1,4 +1,4 @@
-// mockapi is a tiny fake Kubernetes API server used to test KubeDeck without a
+// mockapi is a tiny fake Kubernetes API server used to test KubeLamp without a
 // real cluster. It serves realistic objects, metrics that move over time, and
 // streaming pod logs, behind real TLS with client-certificate or bearer auth.
 //
@@ -639,7 +639,7 @@ func mkLeaf(ca *x509.Certificate, caKey *ecdsa.PrivateKey, cn string, server boo
 }
 
 func main() {
-	dir := flag.String("dir", "/tmp/kubedeck-mock", "where to write the kubeconfig")
+	dir := flag.String("dir", "/tmp/kubelamp-mock", "where to write the kubeconfig")
 	flag.Parse()
 	os.MkdirAll(*dir, 0o755)
 	ca, caKey, caPEM := mkCA()

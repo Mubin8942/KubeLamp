@@ -1,4 +1,4 @@
-// KubeDeck — a lightweight, multi-cluster Kubernetes dashboard with terminals.
+// KubeLamp — a lightweight, multi-cluster Kubernetes dashboard with terminals.
 // Single binary, standard library + a YAML parser. MIT licensed.
 package main
 
@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-const version = "1.2.2"
+const version = "1.3.0"
 
 func main() {
 	kubeconfig := flag.String("kubeconfig", "", "path(s) to kubeconfig files (default: $KUBECONFIG or ~/.kube/config); separate several with "+string(os.PathListSeparator))
@@ -42,7 +42,8 @@ func main() {
 	historyPoints = int(time.Hour / *interval)
 
 	cfgDir, _ := os.UserConfigDir()
-	dataDir := filepath.Join(cfgDir, "KubeDeck")
+	dataDir := filepath.Join(cfgDir, "KubeLamp")
+	migrateLegacyData(filepath.Join(cfgDir, "KubeDeck"), dataDir)
 
 	st := loadSettings(dataDir)
 	paths := splitPaths(*kubeconfig)
@@ -75,7 +76,7 @@ func main() {
 				}
 				return
 			}
-			log.Printf("replaced running KubeDeck %s with %s", v, version)
+			log.Printf("replaced running KubeLamp %s with %s", v, version)
 		}
 	}
 	// macOS .app: hand off to a background process so the launcher can exit.
@@ -107,7 +108,7 @@ func main() {
 	if *readOnly {
 		mode = "read-only"
 	}
-	fmt.Printf("KubeDeck %s\n  kubeconfig: %s\n  open:       %s\n  (%s; press Ctrl+C to stop)\n",
+	fmt.Printf("KubeLamp %s\n  kubeconfig: %s\n  open:       %s\n  (%s; press Ctrl+C to stop)\n",
 		version, strings.Join(paths, string(os.PathListSeparator)), u, mode)
 	if !*noBrowser {
 		go func() { time.Sleep(300 * time.Millisecond); _ = openBrowser(u) }()
@@ -132,7 +133,7 @@ func existingInstance(addr string) (string, bool) {
 	return v.Version, true
 }
 
-// replaceOlder asks a running KubeDeck to quit and waits for the port to free up.
+// replaceOlder asks a running KubeLamp to quit and waits for the port to free up.
 func replaceOlder(addr string) bool {
 	c := &http.Client{Timeout: 2 * time.Second}
 	req, _ := http.NewRequest(http.MethodPost, "http://"+addr+"/api/quit", strings.NewReader("{}"))
@@ -148,4 +149,28 @@ func replaceOlder(addr string) bool {
 		}
 	}
 	return false
+}
+
+// migrateLegacyData copies settings from the pre-rename "KubeDeck" folder the
+// first time KubeLamp starts, so saved kubeconfig paths and per-cluster access
+// settings survive the rename. The old folder is left untouched.
+func migrateLegacyData(oldDir, newDir string) {
+	if _, err := os.Stat(newDir); err == nil {
+		return
+	}
+	entries, err := os.ReadDir(oldDir)
+	if err != nil {
+		return
+	}
+	if os.MkdirAll(newDir, 0o700) != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if b, err := os.ReadFile(filepath.Join(oldDir, e.Name())); err == nil {
+			_ = os.WriteFile(filepath.Join(newDir, e.Name()), b, 0o600)
+		}
+	}
 }

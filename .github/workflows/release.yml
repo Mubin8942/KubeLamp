@@ -30,24 +30,24 @@ jobs:
           mkdir -p dist
           for target in windows/amd64 linux/amd64 linux/arm64 darwin/arm64 darwin/amd64; do
             os=${target%/*}; arch=${target#*/}; ext=""; [ "$os" = windows ] && ext=".exe"
-            dir=dist/kubedeck-${VERSION}-${os}-${arch}
+            dir=dist/kubelamp-${VERSION}-${os}-${arch}
             mkdir -p $dir
-            GOOS=$os GOARCH=$arch CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o $dir/kubedeck$ext .
+            GOOS=$os GOARCH=$arch CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o $dir/kubelamp$ext .
             cp README.md LICENSE $dir/
             (cd dist && zip -qr $(basename $dir).zip $(basename $dir))
           done
       - uses: actions/upload-artifact@v4
         with:
-          name: kubedeck-${{ env.VERSION }}
+          name: kubelamp-${{ env.VERSION }}
           path: dist/*.zip
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.VERSION }}
-          name: KubeDeck ${{ env.VERSION }}
+          name: KubeLamp ${{ env.VERSION }}
           target_commitish: ${{ github.sha }}
           files: dist/*.zip
           body: |
-            Download the zip for your OS, unzip, and run `kubedeck` (Windows: `kubedeck.exe`).
+            Download the zip for your OS, unzip, and run `kubelamp` (Windows: `kubelamp.exe`).
             It opens http://127.0.0.1:7080 and reads `~/.kube/config` (or `-kubeconfig <path>`).
 
   macos-dmg:
@@ -60,7 +60,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
-      - name: Build universal KubeDeck.app + DMG
+      - name: Build universal KubeLamp.app + DMG
         run: |
           python3 -m venv /tmp/venv && /tmp/venv/bin/pip install -q ds_store
           /tmp/venv/bin/python packaging/macos/build_dmg.py --version "${VERSION#v}" --out dist

@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"kubedeck/internal/ws"
+	"kubelamp/internal/ws"
 )
 
 type resType struct {
@@ -134,7 +134,7 @@ func (c *cluster) initGeneric() {
 				"status": obj{"currentReplicas": 3, "desiredReplicas": 3}},
 		)},
 		{"rbac.authorization.k8s.io", "v1", "roles", "Role", true, mk(
-			obj{"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "Role", "metadata": meta("payments", "kubedeck-viewer", nil),
+			obj{"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "Role", "metadata": meta("payments", "kubelamp-viewer", nil),
 				"rules": []obj{{"apiGroups": []string{""}, "resources": []string{"pods", "pods/log"}, "verbs": []string{"get", "list"}}}},
 		)},
 		{"apps", "v1", "deployments", "Deployment", true, &c.deps},
@@ -609,7 +609,7 @@ func normalize(v obj) obj {
 
 var dfExecs atomic.Int64
 
-// batch df probe: sh -c '<script>' sh path...  (what KubeDeck's PVC usage check sends)
+// batch df probe: sh -c '<script>' sh path...  (what KubeLamp's PVC usage check sends)
 func (c *cluster) serveDfExec(w http.ResponseWriter, r *http.Request, ns, pod string, cmd []string) {
 	dfExecs.Add(1)
 	conn, _, err := ws.Accept(w, r, "v5.channel.k8s.io", "v4.channel.k8s.io", "channel.k8s.io")

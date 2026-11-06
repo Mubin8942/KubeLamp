@@ -1,6 +1,6 @@
 # build output
-kubedeck
-kubedeck.exe
+kubelamp
+kubelamp.exe
 dist/
 *.dmg
 *.zip

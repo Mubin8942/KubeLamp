@@ -135,13 +135,13 @@ $('#nsPicker').addEventListener('click', async () => {
   { search: true, placeholder: 'Find a namespace' });
 });
 $('#stopBtn').addEventListener('click', async () => {
-  const ok = await modal({ title: 'Stop the KubeDeck server?', body: '<p>Dashboards, open terminals and log streams close. Open the KubeDeck app (or run <code>kubedeck</code>) to start it again.</p>',
+  const ok = await modal({ title: 'Stop the KubeLamp server?', body: '<p>Dashboards, open terminals and log streams close. Open the KubeLamp app (or run <code>kubelamp</code>) to start it again.</p>',
     actions: [{ label: 'Cancel', value: false }, { label: 'Stop server', kind: 'danger solid', value: true, submit: true }] });
   if (!ok) return;
   S.timers.forEach(clearInterval); S.abort?.abort();
   await fetch('/api/quit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
   document.body.innerHTML = `<div style="grid-column:1/-1;grid-row:1/-1;display:grid;place-items:center;text-align:center;color:var(--ink-2)">
-    <div><h2 style="color:var(--ink);font-weight:600;margin:0 0 6px">KubeDeck has stopped</h2><p style="margin:0">Open the app again to restart it. You can close this tab.</p></div></div>`;
+    <div><h2 style="color:var(--ink);font-weight:600;margin:0 0 6px">KubeLamp has stopped</h2><p style="margin:0">Open the app again to restart it. You can close this tab.</p></div></div>`;
 });
 
 // ------------------------------------------------------------------ router
@@ -186,8 +186,8 @@ function live(ms, fn) {
         const ctx = parseRoute().ctx;
         main.innerHTML = `<div class="empty-state"><h2>Can't reach ${esc(ctx ? shortName(ctx) : 'the server')}</h2><p>${esc(e.message)}</p>
           <p class="muted">${/forbidden|RBAC|nothing readable/i.test(e.message)
-            ? 'Your credentials may only have Role/RoleBinding rights. Tell KubeDeck which namespaces you can read.'
-            : `Check VPN or network access to the API server, and that <code>kubectl --context ${esc(ctx || '')} get pods</code> works. KubeDeck retries automatically.`}</p>
+            ? 'Your credentials may only have Role/RoleBinding rights. Tell KubeLamp which namespaces you can read.'
+            : `Check VPN or network access to the API server, and that <code>kubectl --context ${esc(ctx || '')} get pods</code> works. KubeLamp retries automatically.`}</p>
           ${ctx ? '<button class="btn primary" id="errAccess">Access settings</button>' : ''}</div>`;
         $('#errAccess')?.addEventListener('click', () => openAccess(ctx));
         return;

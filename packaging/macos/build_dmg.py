@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build KubeDeck.app (universal: Apple Silicon + Intel) and a drag-to-install DMG.
+"""Build KubeLamp.app (universal: Apple Silicon + Intel) and a drag-to-install DMG.
 
 Works on Linux and macOS.
   Linux needs: go, xorrisofs, `dmg` from libdmg-hfsplus, rcodesign, `pip install ds_store`
@@ -18,8 +18,8 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
-APP = "KubeDeck"
-BUNDLE_ID = "com.zanayeem.kubedeck"
+APP = "KubeLamp"
+BUNDLE_ID = "com.zanayeem.kubelamp"
 
 
 def run(*cmd, **kw):
@@ -67,13 +67,13 @@ def make_bundle(path, binary, version):
     os.makedirs(os.path.join(c, "Resources"))
     shutil.copy2(binary, os.path.join(c, "MacOS", APP))
     os.chmod(os.path.join(c, "MacOS", APP), 0o755)
-    shutil.copy2(os.path.join(HERE, "KubeDeck.icns"), os.path.join(c, "Resources", "KubeDeck.icns"))
+    shutil.copy2(os.path.join(HERE, "KubeLamp.icns"), os.path.join(c, "Resources", "KubeLamp.icns"))
     info = {
         "CFBundleName": APP,
         "CFBundleDisplayName": APP,
         "CFBundleIdentifier": BUNDLE_ID,
         "CFBundleExecutable": APP,
-        "CFBundleIconFile": "KubeDeck",
+        "CFBundleIconFile": "KubeLamp",
         "CFBundlePackageType": "APPL",
         "CFBundleSignature": "????",
         "CFBundleShortVersionString": version,
@@ -81,7 +81,7 @@ def make_bundle(path, binary, version):
         "CFBundleInfoDictionaryVersion": "6.0",
         "CFBundleDevelopmentRegion": "en",
         "LSMinimumSystemVersion": "11.0",
-        # KubeDeck is a background server with a browser UI: no Dock icon or menu bar.
+        # KubeLamp is a background server with a browser UI: no Dock icon or menu bar.
         "LSUIElement": True,
         "LSApplicationCategoryType": "public.app-category.developer-tools",
         "NSHumanReadableCopyright": "MIT licence · github.com/zanayeem",
@@ -105,29 +105,29 @@ def sign(app):
     run(rc, "sign", "--binary-identifier", f"Contents/MacOS/{APP}={BUNDLE_ID}", app)
 
 
-README = """KubeDeck {version}
+README = """KubeLamp {version}
 ================
 
-Install: drag KubeDeck onto the Applications folder.
+Install: drag KubeLamp onto the Applications folder.
 
-Open: double-click KubeDeck. It runs in the background (no Dock icon) and opens
+Open: double-click KubeLamp. It runs in the background (no Dock icon) and opens
 http://127.0.0.1:7080 in your browser. It reads ~/.kube/config; change the path
 on the "All clusters" page. Open the app again any time to bring the page back.
 Stop it with the "Stop server" button at the top-right of the page.
 The Terminal button opens a shell with kubectl set to the cluster you're viewing.
 
-If macOS says it "could not verify" KubeDeck
+If macOS says it "could not verify" KubeLamp
 --------------------------------------------
-KubeDeck is open source and not notarised by Apple, so the first launch is blocked:
+KubeLamp is open source and not notarised by Apple, so the first launch is blocked:
   1. Click "Done" in the warning.
   2. Open System Settings → Privacy & Security, scroll down.
-  3. Next to "KubeDeck was blocked…", click "Open Anyway", then confirm.
-Or, in Terminal:  xattr -dr com.apple.quarantine /Applications/KubeDeck.app
+  3. Next to "KubeLamp was blocked…", click "Open Anyway", then confirm.
+Or, in Terminal:  xattr -dr com.apple.quarantine /Applications/KubeLamp.app
 
-EKS / exec auth: KubeDeck uses your shell's PATH, so `aws`, `kubelogin`
+EKS / exec auth: KubeLamp uses your shell's PATH, so `aws`, `kubelogin`
 and `gke-gcloud-auth-plugin` from Homebrew are found.
 
-Logs: ~/Library/Logs/KubeDeck.log
+Logs: ~/Library/Logs/KubeLamp.log
 """
 
 
@@ -184,7 +184,7 @@ def main():
         print("2/5 merging into a universal binary")
         uni = os.path.join(tmp, "kd-universal")
         lipo([arm, amd], uni)
-        print("3/5 assembling KubeDeck.app")
+        print("3/5 assembling KubeLamp.app")
         stage = os.path.join(tmp, "stage")
         os.makedirs(stage)
         app = os.path.join(stage, f"{APP}.app")
@@ -196,7 +196,7 @@ def main():
             f.write(README.format(version=a.version))
         write_ds_store(stage, a.version)
         print("5/5 creating the DMG")
-        out = os.path.join(a.out, f"KubeDeck-{a.version}-macOS-universal.dmg")
+        out = os.path.join(a.out, f"KubeLamp-{a.version}-macOS-universal.dmg")
         if os.path.exists(out):
             os.remove(out)
         make_dmg(stage, out, APP)

@@ -1,5 +1,5 @@
 'use strict';
-/* KubeDeck — shared helpers, charts, tables, dialogs. Vanilla JS, no build step. */
+/* KubeLamp — shared helpers, charts, tables, dialogs. Vanilla JS, no build step. */
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const main = $('#main');

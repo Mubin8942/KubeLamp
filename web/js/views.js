@@ -15,13 +15,13 @@ async function openAccess(ctx) {
   const detected = c.accessMode === 'auto' && c.scope ? ` (detected: ${c.scope === 'namespaced' ? 'namespace-scoped' : 'cluster-wide'})` : '';
   dlg.innerHTML = `<form class="dlg" method="dialog">
     <h3>Access for ${esc(shortName(ctx))}</h3>
-    <p class="muted" style="margin:0">How KubeDeck reads this cluster with your kubeconfig credentials.</p>
+    <p class="muted" style="margin:0">How KubeLamp reads this cluster with your kubeconfig credentials.</p>
     <label class="radio"><input type="radio" name="mode" value="auto"><span><b>Automatic</b> — recommended${esc(detected)}
       <small>Use cluster-wide access if your user has a ClusterRole; if not, read only the namespaces below.</small></span></label>
     <label class="radio"><input type="radio" name="mode" value="cluster"><span><b>Cluster-wide</b>
       <small>Needs ClusterRole + ClusterRoleBinding. Shows nodes, every namespace and node capacity.</small></span></label>
     <label class="radio"><input type="radio" name="mode" value="namespaced"><span><b>Only my namespaces</b>
-      <small>For users with Role + RoleBinding only. KubeDeck never makes cluster-scoped calls.</small></span></label>
+      <small>For users with Role + RoleBinding only. KubeLamp never makes cluster-scoped calls.</small></span></label>
     <label class="field">Namespaces you have access to
       <small>Comma or newline separated.${c.namespace ? ` The context's namespace <code>${esc(c.namespace)}</code> is always included.` : ' Without any, “default” is used.'}</small>
       <textarea id="accNs" rows="3" spellcheck="false" placeholder="payments, ecrm">${esc((c.accessNamespaces || []).join(', '))}</textarea></label>
@@ -117,7 +117,7 @@ function clusterHead(sum, title, crumbs = '') {
     ${c.version ? `<span>${esc(c.version)}</span>` : ''}<span class="mono">${esc(c.server)}</span><span>${esc(c.authType)}</span>
     <span class="muted" id="updated">updated ${c.at ? age(c.at) + ' ago' : '—'}</span></div></div>
     <div class="right"><button class="btn" id="accessBtn" title="Cluster-wide or namespace-scoped (Role/RoleBinding) access"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>${esc(isNs(c) ? 'Namespaces: ' + (c.scopeNamespaces || []).length : 'Access')}</button><button class="btn" id="refreshBtn"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>Refresh</button></div></div>
-    ${isNs(c) ? `<div class="banner info"><b>Namespace-scoped.</b><span>Your credentials have Role/RoleBinding access, so KubeDeck shows only <b>${esc((c.scopeNamespaces || []).join(', '))}</b>. ${c.nodesTotal ? 'Nodes are shown because your user may list them; node requests count only your pods' : 'Nodes and cluster capacity need cluster-wide rights'}${c.cpu.quota || c.mem.quota ? '; ResourceQuota is used as the capacity line' : ''}. <a href="#" data-acc>Change namespaces</a></span></div>` : ''}
+    ${isNs(c) ? `<div class="banner info"><b>Namespace-scoped.</b><span>Your credentials have Role/RoleBinding access, so KubeLamp shows only <b>${esc((c.scopeNamespaces || []).join(', '))}</b>. ${c.nodesTotal ? 'Nodes are shown because your user may list them; node requests count only your pods' : 'Nodes and cluster capacity need cluster-wide rights'}${c.cpu.quota || c.mem.quota ? '; ResourceQuota is used as the capacity line' : ''}. <a href="#" data-acc>Change namespaces</a></span></div>` : ''}
     ${c.status === 'partial' ? `<div class="banner"><b>Some data is missing.</b><span>${esc(c.error)}</span></div>` : ''}
     ${!c.metricsAvailable ? (/forbidden|RBAC/i.test(c.metricsErr || '')
       ? `<div class="banner"><b>No live metrics.</b><span>Your Role doesn't allow reading metrics. Ask for <code>get, list</code> on <code>pods</code> in API group <code>metrics.k8s.io</code> in your namespaces.</span></div>`

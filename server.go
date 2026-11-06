@@ -520,12 +520,12 @@ func (s *Server) guard(next http.Handler) http.Handler {
 		}
 		if s.token != "" {
 			got := ""
-			if c, err := r.Cookie("kubedeck_token"); err == nil {
+			if c, err := r.Cookie("kubelamp_token"); err == nil {
 				got = c.Value
 			}
 			if t := r.URL.Query().Get("token"); t != "" {
 				got = t
-				http.SetCookie(w, &http.Cookie{Name: "kubedeck_token", Value: t, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
+				http.SetCookie(w, &http.Cookie{Name: "kubelamp_token", Value: t, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
 			}
 			if a := r.Header.Get("Authorization"); strings.HasPrefix(a, "Bearer ") {
 				got = strings.TrimPrefix(a, "Bearer ")

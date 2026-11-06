@@ -1,5 +1,5 @@
 // Package ws is a minimal RFC 6455 WebSocket implementation (server accept +
-// client framing) so KubeDeck needs no third-party dependency for terminals.
+// client framing) so KubeLamp needs no third-party dependency for terminals.
 package ws
 
 import (

@@ -1,4 +1,4 @@
-module kubedeck
+module kubelamp
 
 go 1.22
 

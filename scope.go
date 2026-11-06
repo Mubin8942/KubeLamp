@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// AccessSettings decide how KubeDeck reads a context.
+// AccessSettings decide how KubeLamp reads a context.
 //
 //	auto        try cluster-wide reads; if RBAC forbids them, fall back to namespaces
 //	cluster     cluster-wide only (ClusterRole / ClusterRoleBinding)

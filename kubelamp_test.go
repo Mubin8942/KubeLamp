@@ -228,3 +228,24 @@ func TestPodViewRestartInfo(t *testing.T) {
 		t.Fatalf("restart info missing: %+v", v)
 	}
 }
+
+func TestMigrateLegacyData(t *testing.T) {
+	base := t.TempDir()
+	oldDir, newDir := filepath.Join(base, "KubeDeck"), filepath.Join(base, "KubeLamp")
+	if err := os.MkdirAll(oldDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(oldDir, "settings.json"), []byte(`{"kubeconfig":["/x"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	migrateLegacyData(oldDir, newDir)
+	if b, err := os.ReadFile(filepath.Join(newDir, "settings.json")); err != nil || string(b) != `{"kubeconfig":["/x"]}` {
+		t.Fatalf("settings not migrated: %v %q", err, b)
+	}
+	// a second run must not overwrite newer settings
+	_ = os.WriteFile(filepath.Join(newDir, "settings.json"), []byte("new"), 0o600)
+	migrateLegacyData(oldDir, newDir)
+	if b, _ := os.ReadFile(filepath.Join(newDir, "settings.json")); string(b) != "new" {
+		t.Fatal("migration overwrote existing settings")
+	}
+}

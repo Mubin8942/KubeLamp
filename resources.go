@@ -530,7 +530,7 @@ func (s *Server) resourceRoutes(mux *http.ServeMux) {
 
 func (s *Server) denyWrite(w http.ResponseWriter) bool {
 	if s.readOnly {
-		writeErr(w, 403, errors.New("KubeDeck is running in read-only mode (-read-only)"))
+		writeErr(w, 403, errors.New("KubeLamp is running in read-only mode (-read-only)"))
 		return true
 	}
 	return false

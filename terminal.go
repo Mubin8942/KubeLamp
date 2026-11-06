@@ -16,10 +16,10 @@ import (
 	"sync"
 	"time"
 
-	"kubedeck/internal/ws"
+	"kubelamp/internal/ws"
 )
 
-// Browser <-> KubeDeck terminal protocol:
+// Browser <-> KubeLamp terminal protocol:
 //
 //	browser → server: text JSON {"t":"i","d":"<keys>"} or {"t":"r","cols":N,"rows":N}
 //	server  → browser: binary frames = terminal output; text JSON {"t":"exit","msg":"…"} at the end
@@ -174,7 +174,7 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------- local shell
 
 // handleShell starts the user's own shell in a pseudo-terminal, with KUBECONFIG
-// set so plain `kubectl` talks to the cluster currently open in KubeDeck.
+// set so plain `kubectl` talks to the cluster currently open in KubeLamp.
 func (s *Server) handleShell(w http.ResponseWriter, r *http.Request) {
 	if !sameOrigin(r) {
 		http.Error(w, "cross-origin websocket blocked", http.StatusForbidden)
@@ -200,7 +200,7 @@ func (s *Server) handleShell(w http.ResponseWriter, r *http.Request) {
 	if ctxName != "" && s.reg.Get(ctxName) != nil {
 		// A tiny kubeconfig listed first selects the context for this shell only;
 		// `kubectl config use-context` inside the shell also stays local to it.
-		f, err := os.CreateTemp("", "kubedeck-ctx-*.yaml")
+		f, err := os.CreateTemp("", "kubelamp-ctx-*.yaml")
 		if err == nil {
 			fmt.Fprintf(f, "apiVersion: v1\nkind: Config\ncurrent-context: %q\n", ctxName)
 			f.Close()
@@ -213,7 +213,7 @@ func (s *Server) handleShell(w http.ResponseWriter, r *http.Request) {
 	cmd := exec.Command(shell, args...)
 	home, _ := os.UserHomeDir()
 	cmd.Dir = home
-	cmd.Env = append(os.Environ(), "KUBECONFIG="+kcEnv, "TERM=xterm-256color", "COLORTERM=truecolor", "KUBEDECK=1")
+	cmd.Env = append(os.Environ(), "KUBECONFIG="+kcEnv, "TERM=xterm-256color", "COLORTERM=truecolor", "KUBELAMP=1")
 	pty, err := startPTY(cmd)
 	if err != nil {
 		say("\r\n\x1b[31mCannot start a shell: " + err.Error() + "\x1b[0m\r\n")
@@ -221,7 +221,7 @@ func (s *Server) handleShell(w http.ResponseWriter, r *http.Request) {
 	}
 	defer pty.Close()
 	if ctxName != "" {
-		say(fmt.Sprintf("\x1b[2mKubeDeck shell · kubectl context: \x1b[0m\x1b[1m%s\x1b[0m\r\n", ctxName))
+		say(fmt.Sprintf("\x1b[2mKubeLamp shell · kubectl context: \x1b[0m\x1b[1m%s\x1b[0m\r\n", ctxName))
 	}
 	waitDone := make(chan struct{})
 	go func() { _ = cmd.Wait(); close(waitDone) }()

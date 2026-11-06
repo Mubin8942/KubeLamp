@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"kubedeck/internal/ws"
+	"kubelamp/internal/ws"
 )
 
 // ---------------------------------------------------------------- live pod lists

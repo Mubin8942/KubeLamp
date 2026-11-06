@@ -1,6 +1,8 @@
-# KubeDeck
+<p align="center"><img src="docs/logo.png" alt="KubeLamp" width="240"></p>
 
-KubeDeck is a lightweight, Headlamp-style Kubernetes dashboard for every cluster in your kubeconfig.
+# KubeLamp
+
+KubeLamp (formerly KubeDeck) is a lightweight, Headlamp-style Kubernetes dashboard for every cluster in your kubeconfig.
 
 Point it at your kubeconfig and you get one web app for all your contexts. You can see live metrics, manage any resource, exec into pods, and run a real shell with `kubectl` already pointed at the cluster you're viewing.
 
@@ -12,7 +14,7 @@ Point it at your kubeconfig and you get one web app for all your contexts. You c
   - Rancher proxy URLs
   - `proxy-url`
   - several files merged together
-- **Works with only Roles and RoleBindings.** If your user has no cluster-wide rights, KubeDeck reads just your namespaces. It detects this automatically, or you can set it per cluster.
+- **Works with only Roles and RoleBindings.** If your user has no cluster-wide rights, KubeLamp reads just your namespaces. It detects this automatically, or you can set it per cluster.
 
 ## Features
 
@@ -23,7 +25,7 @@ Point it at your kubeconfig and you get one web app for all your contexts. You c
 - **Breakdowns:** CPU and memory by namespace, and the top pods by each.
 - **Health:** node pressure and pods that need attention.
 
-**Every resource type, including CRDs.** KubeDeck asks each cluster which resource types it serves and builds the navigation from that:
+**Every resource type, including CRDs.** KubeLamp asks each cluster which resource types it serves and builds the navigation from that:
 - **Workloads:** Deployments, StatefulSets, DaemonSets, Pods, Jobs, CronJobs, HPAs
 - **Network:** Services, Ingresses, Gateways, HTTPRoutes, NetworkPolicies, CiliumNetworkPolicies
 - **Config:** ConfigMaps, Secrets, ExternalSecrets and SecretStores, quotas
@@ -55,9 +57,9 @@ Lists show the same columns as `kubectl get`, including CRD printer columns. A *
 
 **Pods page:** each pod shows its restart count with how long ago the last restart was, and its status with the last restart reason and exit code, for example `OOMKilled (137)`. The page reloads live from the cluster every 5s. The picker at the top right offers 1s, 5s, 10s, 30s and 1 min, and your choice is remembered. It pauses while the tab is hidden.
 
-**Volume usage:** PVC lists and pages show real usage, not just the claimed size. KubeDeck needs no node or kubelet access: it finds a running pod that mounts the claim and runs `df` there through the exec API.
+**Volume usage:** PVC lists and pages show real usage, not just the claimed size. KubeLamp needs no node or kubelet access: it finds a running pod that mounts the claim and runs `df` there through the exec API.
 - **Light on pods:** one exec per pod covers all of its claims, at most 3 run at once, and results are cached for 5 minutes. Forced refreshes are limited to once per 10s per volume.
-- **Fallbacks:** if a container has no shell or `df`, KubeDeck tries another container or pod.
+- **Fallbacks:** if a container has no shell or `df`, KubeLamp tries another container or pod.
 - **Limits:** claims with no running pod can't be measured, `subPath` mounts show the whole volume and are marked `~`, and `-read-only` mode turns this off because it needs exec.
 
 **Logs for a whole Deployment:**
@@ -75,26 +77,26 @@ Lists show the same columns as `kubectl get`, including CRD printer columns. A *
 
    ```sh
    # Windows
-   kubedeck.exe
-   kubedeck.exe -kubeconfig C:\Users\you\.kube\config
+   kubelamp.exe
+   kubelamp.exe -kubeconfig C:\Users\you\.kube\config
 
    # Linux / macOS
-   ./kubedeck
-   ./kubedeck -kubeconfig ~/.kube/config:~/.kube/eks-config
+   ./kubelamp
+   ./kubelamp -kubeconfig ~/.kube/config:~/.kube/eks-config
    ```
 
 3. Your browser opens at `http://127.0.0.1:7080`. You can also change the kubeconfig path at the top of the **All clusters** page. It's remembered between runs.
 
 ### macOS app
 
-1. Open `KubeDeck-<version>-macOS-universal.dmg` and drag **KubeDeck** onto **Applications**. One app runs on both Apple Silicon and Intel Macs (macOS 11 or newer).
-2. Double-click KubeDeck. It runs in the background with no Dock icon and opens the dashboard in your browser.
+1. Open `KubeLamp-<version>-macOS-universal.dmg` and drag **KubeLamp** onto **Applications**. One app runs on both Apple Silicon and Intel Macs (macOS 11 or newer).
+2. Double-click KubeLamp. It runs in the background with no Dock icon and opens the dashboard in your browser.
    - Opening it again just brings the page back.
    - Stop it with **Quit** in the bottom-left corner of the page.
-   - Logs are written to `~/Library/Logs/KubeDeck.log`.
-3. **The first time**, macOS says it "could not verify" KubeDeck, because the app isn't notarized by Apple. To allow it:
+   - Logs are written to `~/Library/Logs/KubeLamp.log`.
+3. **The first time**, macOS says it "could not verify" KubeLamp, because the app isn't notarized by Apple. To allow it:
    - Open **System Settings → Privacy & Security** and click **Open Anyway**.
-   - Or run `xattr -dr com.apple.quarantine /Applications/KubeDeck.app`.
+   - Or run `xattr -dr com.apple.quarantine /Applications/KubeLamp.app`.
 4. **EKS and other exec logins:** the app uses your shell's `PATH`, so `aws`, `kubelogin` and `gke-gcloud-auth-plugin` installed with Homebrew are found.
 
 To build the DMG yourself, run `python3 packaging/macos/build_dmg.py --version 1.0.0` (see the script header for what it needs on Linux or macOS).
@@ -130,14 +132,14 @@ In namespace mode:
 - **Usage, workloads, pods, events and logs** come only from your namespaces.
 - **Capacity line:** if every namespace you can see has a ResourceQuota, the quota is used as the capacity line. Otherwise the charts show usage against requests and limits.
 - **Nodes** are hidden, because they're cluster-scoped. Each pod still shows which node it runs on.
-- **Settings are saved** per context in your user config folder.
+- **Settings are saved** per context in your user config folder (`KubeLamp`). Settings from the old `KubeDeck` folder are copied over the first time KubeLamp starts.
 
 Smallest Role that gives the full namespace experience, including logs and metrics:
 
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
-metadata: { name: kubedeck-viewer, namespace: payments }
+metadata: { name: kubelamp-viewer, namespace: payments }
 rules:
 - apiGroups: [""]
   resources: [pods, pods/log, events, resourcequotas]
@@ -151,9 +153,9 @@ rules:
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
-metadata: { name: kubedeck-viewer, namespace: payments }
+metadata: { name: kubelamp-viewer, namespace: payments }
 subjects: [{ kind: User, name: dev-team, apiGroup: rbac.authorization.k8s.io }]
-roleRef: { kind: Role, name: kubedeck-viewer, apiGroup: rbac.authorization.k8s.io }
+roleRef: { kind: Role, name: kubelamp-viewer, apiGroup: rbac.authorization.k8s.io }
 ```
 
 Logs by Deployment labels need only `pods` (list) and `pods/log` (get) in that namespace.
@@ -169,16 +171,16 @@ Logs are streamed straight from the kubelet through the API server, using Server
 Writes use the API server directly with your kubeconfig credentials, so Kubernetes RBAC decides what you can do. Pod exec bridges the API server's WebSocket exec endpoint to xterm.js in the browser.
 
 Security:
-- By default KubeDeck only accepts connections from this machine. It checks the Host header (DNS-rebinding guard) and the Origin header on writes and terminals.
+- By default KubeLamp only accepts connections from this machine. It checks the Host header (DNS-rebinding guard) and the Origin header on writes and terminals.
 - When bound to the network it requires a token, and the local shell is turned off unless you pass `-allow-shell`.
-- Your kubeconfig credentials never leave the KubeDeck process.
+- Your kubeconfig credentials never leave the KubeLamp process.
 
 ## Build from source
 
 You need Go 1.22 or newer. The only dependency, the YAML parser, is included in `third_party/`, so the build works offline.
 
 ```sh
-go build -trimpath -ldflags "-s -w" -o kubedeck .
+go build -trimpath -ldflags "-s -w" -o kubelamp .
 go test ./...
 ```
 

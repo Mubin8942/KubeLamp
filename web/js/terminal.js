@@ -102,7 +102,7 @@ const Term = (() => {
 
   function newShell(ctx = parseRoute().ctx) {
     if (S.info && !S.info.shell) {
-      toast(S.info.readOnly ? 'The shell is disabled in read-only mode.' : 'The shell is only available when KubeDeck listens on localhost.', 'err');
+      toast(S.info.readOnly ? 'The shell is disabled in read-only mode.' : 'The shell is only available when KubeLamp listens on localhost.', 'err');
       return;
     }
     const n = tabs.filter(t => t.kind === 'shell').length + 1;

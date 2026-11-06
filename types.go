@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// Only the fields KubeDeck uses — keeps decoding cheap and memory small.
+// Only the fields KubeLamp uses — keeps decoding cheap and memory small.
 
 type OwnerRef struct {
 	Kind string `json:"kind"`
