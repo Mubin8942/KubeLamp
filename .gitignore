@@ -1,0 +1,17 @@
+# build output
+kubedeck
+kubedeck.exe
+dist/
+*.dmg
+*.zip
+# local state and secrets - never commit
+settings.json
+kubeconfig*
+*.kubeconfig
+*.pem
+*.key
+*.crt
+.env
+__pycache__/
+*.pyc
+.DS_Store

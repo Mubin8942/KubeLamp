@@ -1,0 +1,70 @@
+name: release
+
+# Actions tab → "release" → Run workflow (enter a version), or push a tag v*.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version / tag (e.g. v1.0.0)"
+        required: true
+        default: "v1.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ github.event.inputs.version || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - run: go vet . && go test ./...
+      - name: Build
+        run: |
+          mkdir -p dist
+          for target in windows/amd64 linux/amd64 linux/arm64 darwin/arm64 darwin/amd64; do
+            os=${target%/*}; arch=${target#*/}; ext=""; [ "$os" = windows ] && ext=".exe"
+            dir=dist/kubedeck-${VERSION}-${os}-${arch}
+            mkdir -p $dir
+            GOOS=$os GOARCH=$arch CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o $dir/kubedeck$ext .
+            cp README.md LICENSE $dir/
+            (cd dist && zip -qr $(basename $dir).zip $(basename $dir))
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kubedeck-${{ env.VERSION }}
+          path: dist/*.zip
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
+          name: KubeDeck ${{ env.VERSION }}
+          target_commitish: ${{ github.sha }}
+          files: dist/*.zip
+          body: |
+            Download the zip for your OS, unzip, and run `kubedeck` (Windows: `kubedeck.exe`).
+            It opens http://127.0.0.1:7080 and reads `~/.kube/config` (or `-kubeconfig <path>`).
+
+  macos-dmg:
+    needs: build
+    runs-on: macos-latest
+    env:
+      VERSION: ${{ github.event.inputs.version || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: Build universal KubeDeck.app + DMG
+        run: |
+          python3 -m venv /tmp/venv && /tmp/venv/bin/pip install -q ds_store
+          /tmp/venv/bin/python packaging/macos/build_dmg.py --version "${VERSION#v}" --out dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
+          files: dist/*.dmg
