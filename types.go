@@ -37,10 +37,25 @@ type Condition struct {
 
 type ResourceList map[string]string
 
-type Container struct {
+type VolumeMount struct {
 	Name      string `json:"name"`
-	Image     string `json:"image"`
-	Resources struct {
+	MountPath string `json:"mountPath"`
+	SubPath   string `json:"subPath,omitempty"`
+	ReadOnly  bool   `json:"readOnly,omitempty"`
+}
+
+type Volume struct {
+	Name string `json:"name"`
+	PVC  *struct {
+		ClaimName string `json:"claimName"`
+	} `json:"persistentVolumeClaim,omitempty"`
+}
+
+type Container struct {
+	Name         string        `json:"name"`
+	Image        string        `json:"image"`
+	VolumeMounts []VolumeMount `json:"volumeMounts,omitempty"`
+	Resources    struct {
 		Requests ResourceList `json:"requests,omitempty"`
 		Limits   ResourceList `json:"limits,omitempty"`
 	} `json:"resources"`
@@ -50,6 +65,7 @@ type PodSpec struct {
 	NodeName       string      `json:"nodeName,omitempty"`
 	Containers     []Container `json:"containers"`
 	InitContainers []Container `json:"initContainers,omitempty"`
+	Volumes        []Volume    `json:"volumes,omitempty"`
 }
 
 type ContainerState struct {

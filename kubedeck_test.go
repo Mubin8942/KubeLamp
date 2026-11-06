@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseQuantity(t *testing.T) {
@@ -166,5 +167,64 @@ func TestYAMLRoundTrip(t *testing.T) {
 	}
 	if _, _, err := fromYAML("- a\n- b\n"); err == nil {
 		t.Fatal("list should be rejected")
+	}
+}
+
+func TestParseDfScript(t *testing.T) {
+	out := "@@/data\n10.1.2.3:6789:/volumes/csi/x 10485760 3355443 7130317 33% /data\n@@/missing\ndf: /missing: No such file or directory\n@@/var/ledger\nceph-fuse 20971520 18245222 2726298 87% /var/ledger\n"
+	got := parseDfScript(out)
+	if len(got) != 2 {
+		t.Fatalf("want 2 readings, got %d: %v", len(got), got)
+	}
+	if u := got["/data"]; u.Size != 10485760*1024 || u.Used != 3355443*1024 || int(math.Round(u.Pct)) != 32 {
+		t.Errorf("/data parsed wrong: %+v", u)
+	}
+	if u := got["/var/ledger"]; int(math.Round(u.Pct)) != 87 {
+		t.Errorf("/var/ledger pct = %v", u.Pct)
+	}
+	if _, bad := got["/missing"]; bad {
+		t.Error("error line must not produce a reading")
+	}
+}
+
+func TestPVCCandidates(t *testing.T) {
+	mk := func(name, phase string, running bool) Pod {
+		var p Pod
+		p.Metadata.Name, p.Metadata.Namespace = name, "ns"
+		p.Status.Phase = phase
+		p.Spec.Volumes = []Volume{{Name: "v", PVC: &struct {
+			ClaimName string `json:"claimName"`
+		}{"claim-a"}}}
+		p.Spec.Containers = []Container{{Name: "c", VolumeMounts: []VolumeMount{{Name: "v", MountPath: "/d"}}}}
+		cs := ContainerStatus{Name: "c"}
+		if running {
+			cs.State.Running = &struct {
+				StartedAt time.Time `json:"startedAt"`
+			}{}
+		}
+		p.Status.ContainerStatuses = []ContainerStatus{cs}
+		return p
+	}
+	pods := []Pod{mk("up", "Running", true), mk("pending", "Pending", false), mk("crash", "Running", false)}
+	c := pvcCandidates(pods, "ns")["claim-a"]
+	if len(c) != 1 || c[0].pod != "up" || c[0].path != "/d" {
+		t.Fatalf("only the running container should be a candidate, got %+v", c)
+	}
+}
+
+func TestPodViewRestartInfo(t *testing.T) {
+	var p Pod
+	p.Metadata.Name = "x"
+	fin := time.Now().Add(-5 * time.Minute)
+	cs := ContainerStatus{Name: "c", RestartCount: 3}
+	cs.LastState.Terminated = &struct {
+		Reason     string    `json:"reason"`
+		ExitCode   int       `json:"exitCode"`
+		FinishedAt time.Time `json:"finishedAt"`
+	}{"OOMKilled", 137, fin}
+	p.Status.ContainerStatuses = []ContainerStatus{cs}
+	v := podView(&Snapshot{owner: map[string]string{}, PodUsage: map[string]Usage{}}, &p, false)
+	if v.LastReason != "OOMKilled" || v.LastExit == nil || *v.LastExit != 137 || v.LastRestart == nil {
+		t.Fatalf("restart info missing: %+v", v)
 	}
 }

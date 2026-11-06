@@ -291,24 +291,26 @@ func nodeViews(c *Cluster, s *Snapshot, withLabels bool) []NodeView {
 // ---------------------------------------------------------------- pods
 
 type PodView struct {
-	Namespace  string            `json:"namespace"`
-	Name       string            `json:"name"`
-	Status     string            `json:"status"`
-	Phase      string            `json:"phase"`
-	Problem    bool              `json:"problem"`
-	Ready      string            `json:"ready"`
-	Restarts   int               `json:"restarts"`
-	LastReason string            `json:"lastReason,omitempty"`
-	Node       string            `json:"node"`
-	IP         string            `json:"ip"`
-	Created    time.Time         `json:"created"`
-	Owner      string            `json:"owner"`
-	QoS        string            `json:"qos"`
-	CPU        Res               `json:"cpu"`
-	Mem        Res               `json:"mem"`
-	HasMetrics bool              `json:"hasMetrics"`
-	Containers []string          `json:"containers"`
-	Labels     map[string]string `json:"labels,omitempty"`
+	Namespace   string            `json:"namespace"`
+	Name        string            `json:"name"`
+	Status      string            `json:"status"`
+	Phase       string            `json:"phase"`
+	Problem     bool              `json:"problem"`
+	Ready       string            `json:"ready"`
+	Restarts    int               `json:"restarts"`
+	LastReason  string            `json:"lastReason,omitempty"`
+	LastExit    *int              `json:"lastExit,omitempty"`
+	LastRestart *time.Time        `json:"lastRestart,omitempty"`
+	Node        string            `json:"node"`
+	IP          string            `json:"ip"`
+	Created     time.Time         `json:"created"`
+	Owner       string            `json:"owner"`
+	QoS         string            `json:"qos"`
+	CPU         Res               `json:"cpu"`
+	Mem         Res               `json:"mem"`
+	HasMetrics  bool              `json:"hasMetrics"`
+	Containers  []string          `json:"containers"`
+	Labels      map[string]string `json:"labels,omitempty"`
 }
 
 func podView(s *Snapshot, p *Pod, withLabels bool) PodView {
@@ -320,9 +322,22 @@ func podView(s *Snapshot, p *Pod, withLabels bool) PodView {
 		Restarts: podRestarts(p), Node: p.Spec.NodeName, IP: p.Status.PodIP,
 		Created: p.Metadata.CreationTimestamp, Owner: s.owner[key], QoS: p.Status.QOSClass,
 	}
+	// most recent container termination = "last restart"
 	for _, cs := range p.Status.ContainerStatuses {
-		if cs.LastState.Terminated != nil && cs.LastState.Terminated.Reason != "" {
-			v.LastReason = cs.LastState.Terminated.Reason
+		if t := cs.LastState.Terminated; t != nil && (v.LastRestart == nil || t.FinishedAt.After(*v.LastRestart)) {
+			fin, code := t.FinishedAt, t.ExitCode
+			v.LastRestart, v.LastExit = &fin, &code
+			v.LastReason = t.Reason
+			if v.LastReason == "" {
+				v.LastReason = "Error"
+			}
+		}
+	}
+	// the restart itself happened when the restarted container started running again
+	for _, cs := range p.Status.ContainerStatuses {
+		if cs.RestartCount > 0 && cs.State.Running != nil && (v.LastRestart == nil || cs.State.Running.StartedAt.After(*v.LastRestart)) {
+			st := cs.State.Running.StartedAt
+			v.LastRestart = &st
 		}
 	}
 	for _, c := range p.Spec.Containers {

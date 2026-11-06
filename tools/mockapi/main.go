@@ -226,18 +226,46 @@ func (c *cluster) wave(base float64, key string, amp float64) float64 {
 
 func (c *cluster) podObj(p *pod) obj {
 	var ctrs, statuses []obj
-	for _, ct := range p.containers {
-		ctrs = append(ctrs, obj{"name": ct, "image": "img/" + ct, "resources": obj{
+	var volumes []obj
+	mounts := map[string][]string{} // container → mount entries "vol|path"
+	for _, pm := range pvcMounts[p.deploy] {
+		volumes = append(volumes, obj{"name": pm.claim, "persistentVolumeClaim": obj{"claimName": pm.claim}})
+		for _, ct := range pm.ctrs {
+			mounts[ct] = append(mounts[ct], pm.claim+"|"+pm.path)
+		}
+	}
+	// declare mounting containers first so the first df attempt can hit a container without `sh`
+	ordered := append([]string(nil), p.containers...)
+	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i] == "envoy" && ordered[j] != "envoy" })
+	for _, ct := range ordered {
+		var vms []obj
+		for _, e := range mounts[ct] {
+			parts := strings.SplitN(e, "|", 2)
+			vms = append(vms, obj{"name": parts[0], "mountPath": parts[1]})
+		}
+		ctrs = append(ctrs, obj{"name": ct, "image": "img/" + ct, "volumeMounts": vms, "resources": obj{
 			"requests": obj{"cpu": fmt.Sprintf("%dm", int(p.reqCPU/float64(len(p.containers)))), "memory": fmt.Sprintf("%dMi", int(p.reqMem/float64(len(p.containers))))},
 			"limits":   obj{"cpu": fmt.Sprintf("%dm", int(p.limCPU/float64(len(p.containers)))), "memory": fmt.Sprintf("%dMi", int(p.limMem/float64(len(p.containers))))},
 		}})
 		st := obj{"name": ct, "ready": p.ready, "restartCount": p.restarts, "image": "img/" + ct}
 		switch p.status {
 		case "Running":
-			st["state"] = obj{"running": obj{"startedAt": ts(p.created)}}
+			started := p.created
+			if p.restarts > 0 {
+				started = time.Now().Add(-time.Duration(1+len(p.name)%5*9) * time.Minute)
+			}
+			st["state"] = obj{"running": obj{"startedAt": ts(started)}}
 		case "CrashLoopBackOff":
 			st["state"] = obj{"waiting": obj{"reason": "CrashLoopBackOff", "message": "back-off 5m0s restarting failed container"}}
 			st["lastState"] = obj{"terminated": obj{"reason": "Error", "exitCode": 1, "finishedAt": ts(time.Now().Add(-time.Minute))}}
+		}
+		if p.restarts > 0 && p.status == "Running" {
+			reason, code := "OOMKilled", 137
+			if p.deploy != "ledger-worker" {
+				reason, code = "Error", 1
+			}
+			st["lastState"] = obj{"terminated": obj{"reason": reason, "exitCode": code,
+				"finishedAt": ts(time.Now().Add(-time.Duration(2+len(p.name)%5*9) * time.Minute))}}
 		}
 		if p.status != "Pending" {
 			statuses = append(statuses, st)
@@ -255,7 +283,7 @@ func (c *cluster) podObj(p *pod) obj {
 				}
 				return p.deploy
 			}()}}},
-		"spec":   obj{"nodeName": p.node, "containers": ctrs},
+		"spec":   obj{"nodeName": p.node, "containers": ctrs, "volumes": volumes},
 		"status": obj{"phase": phase, "podIP": "10.42." + strconv.Itoa(len(p.name)%9) + "." + strconv.Itoa(len(p.name)*7%250), "qosClass": "Burstable", "containerStatuses": statuses},
 	}
 	if p.status != "Pending" {
@@ -733,4 +761,24 @@ contexts:
 	sort.Strings(names)
 	log.Printf("mock clusters up: %s (client cert), %s (exec token); kubeconfig: %s", u1, u2, filepath.Join(*dir, "kubeconfig"))
 	select {}
+}
+
+type pvcMount struct {
+	claim, path string
+	ctrs        []string
+}
+
+// which deployments mount which PVC (used by pod objects and the fake `df`)
+var pvcMounts = map[string][]pvcMount{
+	"payments-api":  {{"api-data", "/data", []string{"envoy", "api"}}},
+	"ledger-worker": {{"ledger-data", "/var/ledger", []string{"worker"}}, {"ledger-cache", "/var/cache", []string{"worker"}}},
+	"ecrm-backend":  {{"ecrm-uploads", "/uploads", []string{"app"}}},
+}
+
+// pvc → (size KiB, used KiB) reported by the fake df
+var pvcDf = map[string][2]int{
+	"api-data":     {10485760, 3355443},
+	"ledger-data":  {20971520, 18245222},
+	"ledger-cache": {5242880, 1048576},
+	"ecrm-uploads": {5242880, 4876000},
 }

@@ -3,7 +3,7 @@
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const main = $('#main');
-const S = { clusters: [], kc: null, timers: [], abort: null, sort: {}, view: null };
+const S = { clusters: [], kc: null, timers: [], abort: null, sort: {}, view: null, gen: 0, pvc: {} };
 
 // ------------------------------------------------------------------ helpers
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -330,3 +330,29 @@ const ICON = {
   pause: '<svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg>',
   play: '<svg viewBox="0 0 24 24"><path d="M7 5l12 7-12 7z"/></svg>',
 };
+
+
+// ------------------------------------------------------------------ volume usage (PVC) helpers
+const fmtBytes = b => {
+  const u = ['B', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi']; let i = 0;
+  while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
+  return (b >= 100 || i === 0 ? Math.round(b) : b.toFixed(1).replace(/\.0$/, '')) + u[i];
+};
+const PVC_WARN = 80, PVC_CRIT = 90;
+function pvcCell(u) {
+  if (!u) return '<span class="muted">checking…</span>';
+  if (u.state === 'ok') {
+    const p = Math.min(100, u.pct), cls = p >= PVC_CRIT ? 'critical' : p >= PVC_WARN ? 'warning' : '';
+    const tip = `${u.pod}/${u.container}:${u.path}${u.approx ? ' (subPath: whole volume shown)' : ''} · read ${age(u.at)} ago${u.cached ? ' (cached)' : ''}`;
+    return `<div class="mcell" title="${esc(tip)}"><div class="meter"><i class="${cls}" style="width:${p}%"></i></div>
+      <div class="nums"><span>${u.approx ? '~' : ''}${fmtBytes(u.used)} / ${fmtBytes(u.size)}</span><span class="${cls ? 'pct-' + cls : ''}">${p.toFixed(0)}%</span></div></div>`;
+  }
+  const m = { unmounted: ['not mounted by a running pod', ''], unbound: ['not bound', ''], disabled: ['needs exec (read-only mode)', ''], error: ['can’t read usage', u.err] }[u.state] || ['—', ''];
+  return `<span class="muted" title="${esc(m[1])}">${m[0]}</span>`;
+}
+const pvcKey = (ctx, ns, name) => `${ctx}/${ns}/${name}`;
+async function loadPvcUsage(ctx, ns, { refresh = false, name = '' } = {}) {
+  const d = await api(`pvcusage?ctx=${enc(ctx)}&ns=${enc(ns)}${name ? '&name=' + enc(name) : ''}${refresh ? '&refresh=1' : ''}`);
+  d.pvcs.forEach(u => { S.pvc[pvcKey(ctx, u.namespace, u.name)] = u; });
+  return d;
+}

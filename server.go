@@ -359,10 +359,23 @@ func (s *Server) routes() http.Handler {
 			return
 		}
 		ns := r.URL.Query().Get("ns")
-		out := make([]PodView, 0, len(snap.Pods))
-		for i := range snap.Pods {
-			if ns == "" || snap.Pods[i].Metadata.Namespace == ns {
-				out = append(out, podView(snap, &snap.Pods[i], false))
+		pods, stale := snap.Pods, false
+		if r.URL.Query().Get("fresh") == "1" {
+			// live list so 1s/5s polling shows real changes, not the 15s snapshot
+			if c := s.reg.Get(r.URL.Query().Get("ctx")); c != nil && c.client != nil {
+				ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+				if fp, err := c.FreshPods(ctx, ns); err == nil {
+					pods = fp
+				} else {
+					stale = true
+				}
+				cancel()
+			}
+		}
+		out := make([]PodView, 0, len(pods))
+		for i := range pods {
+			if ns == "" || pods[i].Metadata.Namespace == ns {
+				out = append(out, podView(snap, &pods[i], false))
 			}
 		}
 		sort.Slice(out, func(i, j int) bool {
@@ -371,7 +384,7 @@ func (s *Server) routes() http.Handler {
 			}
 			return out[i].Name < out[j].Name
 		})
-		writeJSON(w, 200, map[string]any{"pods": out, "metrics": snap.MetricsAvailable})
+		writeJSON(w, 200, map[string]any{"pods": out, "metrics": snap.MetricsAvailable, "stale": stale, "at": time.Now()})
 	})
 
 	mux.HandleFunc("GET /api/pod", func(w http.ResponseWriter, r *http.Request) {
@@ -429,6 +442,8 @@ func (s *Server) routes() http.Handler {
 
 	s.resourceRoutes(mux)
 	s.terminalRoutes(mux)
+	s.pvcRoutes(mux)
+	s.overviewRoutes(mux)
 
 	mux.HandleFunc("GET /api/info", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"version": version, "readOnly": s.readOnly, "shell": s.shellAllowed(), "os": runtime.GOOS})

@@ -120,6 +120,31 @@ async function viewResource(route) {
     <div class="filters"><input type="search" id="rq" placeholder="Filter by name, label or any column" style="width:320px"><span class="count" id="rcount"></span></div>
     <div class="card flush" id="rBox"><div class="muted" style="padding:16px">Loading…</div></div>`;
   let wide = false, data = null;
+  const isPvc = resource === 'persistentvolumeclaims' && group === '';
+  if (isPvc) {
+    $('.page-head .right').insertAdjacentHTML('afterbegin', `<button class="btn" id="pvcCheck" title="Run df inside a pod that mounts each volume. Readings are cached for 5 minutes to keep the load on pods low.">${ICON.edit}Check usage now</button>`);
+    $('#pvcCheck').onclick = () => measure(true);
+  }
+  // usage: one df per pod (not per claim), namespaces measured one at a time, 5-minute cache on the server
+  let measuring = false;
+  const measure = async (force) => {
+    if (!isPvc || !data || measuring || ro() && !force && false) return;
+    const nss = [...new Set(data.rows.map(r => r.namespace).filter(Boolean))];
+    if (nss.length > 12 && !force) {
+      $('#rBox').insertAdjacentHTML('afterbegin', `<div class="banner info" id="pvcMany" style="margin:12px"><b>${nss.length} namespaces have claims.</b><span>Pick a namespace above to measure usage, or press “Check usage now” to measure all of them.</span></div>`);
+      return;
+    }
+    measuring = true;
+    const btn = $('#pvcCheck'); if (btn) btn.disabled = true;
+    try {
+      for (let i = 0; i < nss.length; i++) {
+        if (parseRoute().section !== 'r') return;
+        if (btn) btn.lastChild.textContent = `Checking ${i + 1}/${nss.length}…`;
+        try { await loadPvcUsage(ctx, nss[i], { refresh: !!force }); } catch (e) { toast(`${nss[i]}: ${e.message}`, 'err'); }
+        draw();
+      }
+    } finally { measuring = false; if (btn) { btn.disabled = false; btn.lastChild.textContent = 'Check usage now'; } }
+  };
   $('#wideBtn').onclick = () => { wide = !wide; $('#wideBtn').classList.toggle('on', wide); draw(); };
   $('#rq').addEventListener('input', () => draw());
   const draw = () => {
@@ -135,6 +160,8 @@ async function viewResource(route) {
       sort: c.name === 'Age' ? (r => -new Date(r.created)) : (r => r.cells[i] ?? ''),
       render: r => fmtCell(r.cells[i], c),
     }));
+    if (isPvc) cols.push({ key: 'usage', label: 'Usage (df)', sort: r => S.pvc[pvcKey(ctx, r.namespace, r.name)]?.pct ?? -1,
+      render: r => pvcCell(S.pvc[pvcKey(ctx, r.namespace, r.name)]) });
     cols.push({ key: 'act', label: '', nosort: true, cls: 'act', render: () => `<button class="icon-btn" data-menu title="Actions">${ICON.more}</button>` });
     const t = table('res-' + resource, cols, rows, { sort: { key: 'name', dir: 'asc' } });
     $('#rBox').innerHTML = t.html;
@@ -149,8 +176,10 @@ async function viewResource(route) {
   };
   const load = async () => {
     try {
+      const first = !data;
       data = await api(`table?ctx=${enc(ctx)}&group=${enc(group)}&resource=${enc(resource)}&ns=${enc(res.namespaced ? S.ns : '')}`);
       draw();
+      if (first) measure(false);
     } catch (e) {
       if (e.name === 'AbortError') return;
       $('#rBox').innerHTML = `<div class="empty-state" style="padding:40px 20px"><h2>Can't list ${esc(title.toLowerCase())}</h2><p>${esc(e.message)}</p>
@@ -159,7 +188,7 @@ async function viewResource(route) {
   };
   // the table helper links each row; we use explicit anchors instead
   await load();
-  every(20000, load);
+  every(20000, async () => { await load(); if (isPvc) measure(false); });
 }
 
 function fmtCell(v, c) {
@@ -245,7 +274,7 @@ async function viewObject(route) {
     tab = t;
     $$('.tabs a', main).forEach(a => a.classList.toggle('on', a.dataset.tab === t));
     history.replaceState(null, '', objHref(ctx, group, resource, ns, name, t === 'overview' ? '' : t));
-    if (t === 'overview') renderOverview(o, kind);
+    if (t === 'overview') renderOverview(o, kind, ctx);
     if (t === 'yaml') renderYaml(d.yaml, editable, { ctx, group, resource, ns, name });
     if (t === 'events') $('#tabBody').innerHTML = `<div class="card">${eventsList(d.events || [])}</div>`;
   };
@@ -253,7 +282,7 @@ async function viewObject(route) {
   show(tab);
 }
 
-function renderOverview(o, kind) {
+function renderOverview(o, kind, ctx) {
   const md = o.metadata || {};
   const kv = (obj, cls = 'chip') => Object.entries(obj || {}).map(([k, v]) => `<span class="${cls}">${esc(k)}${v !== '' ? '=' + esc(v) : ''}</span>`).join('') || '<span class="muted">none</span>';
   let special = '';
@@ -279,6 +308,21 @@ function renderOverview(o, kind) {
           e.currentTarget.lastChild.textContent = shown ? 'Reveal' : 'Hide';
         });
       });
+    });
+  } else if (kind === 'PersistentVolumeClaim') {
+    const key = pvcKey(ctx, md.namespace, md.name);
+    special = `<div class="card"><div class="card-head"><h3>Volume usage</h3><span class="cap">measured with df inside a pod that mounts it</span>
+      <div class="right"><button class="btn" id="pvcRe">Re-check</button></div></div><div id="pvcUse">${pvcCell(S.pvc[key])}</div>
+      <div class="kvgrid" style="margin-top:10px"><span>Requested</span><span>${esc(o.spec?.resources?.requests?.storage || '—')}</span>
+      <span>Class</span><span>${esc(o.spec?.storageClassName || '—')}</span><span>Volume</span><span class="mono">${esc(o.spec?.volumeName || '—')}</span></div></div>`;
+    setTimeout(() => {
+      const run = async force => {
+        $('#pvcUse').innerHTML = '<span class="muted">checking…</span>';
+        try { await loadPvcUsage(ctx, md.namespace, { name: md.name, refresh: force }); } catch (e) { S.pvc[key] = { state: 'error', err: e.message }; }
+        if ($('#pvcUse')) $('#pvcUse').innerHTML = pvcCell(S.pvc[key]);
+      };
+      $('#pvcRe')?.addEventListener('click', () => run(true));
+      run(false);
     });
   } else if (kind === 'Service') {
     const sp = o.spec || {};

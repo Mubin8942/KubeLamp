@@ -32,7 +32,7 @@ function setNs(ctx, ns) {
 // ------------------------------------------------------------------ navigation model
 // [label, target] — target is a dashboard section, or [group, resource] for any API type
 const NAV = [
-  ['Cluster', [['Overview', 'overview'], ['Nodes', 'nodes'], ['Namespaces', ['', 'namespaces']], ['Events', 'events']]],
+  ['Cluster', [['Overview', 'overview'], ['Nodes', 'nodes'], ['Namespaces', 'namespaces'], ['Events', 'events']]],
   ['Workloads', [['Deployments', 'wl:Deployment'], ['StatefulSets', 'wl:StatefulSet'], ['DaemonSets', 'wl:DaemonSet'], ['Pods', 'pods'],
     ['Jobs', ['batch', 'jobs']], ['CronJobs', ['batch', 'cronjobs']], ['ReplicaSets', ['apps', 'replicasets']],
     ['Autoscalers', ['autoscaling', 'horizontalpodautoscalers']], ['Pod disruption budgets', ['policy', 'poddisruptionbudgets']], ['Deployment logs', 'logs']]],
@@ -155,7 +155,7 @@ function parseRoute() {
 }
 let lastCtx = null;
 async function navigate() {
-  S.timers.forEach(clearInterval); S.timers = [];
+  S.timers.forEach(clearInterval); S.timers = []; S.gen++; S.kick = null;
   S.abort?.abort(); S.abort = new AbortController();
   S.redraw = null; hideTip(); closePop();
   const route = parseRoute();
@@ -163,7 +163,7 @@ async function navigate() {
   renderTop(route);
   renderNav(route);
   if (route.ctx && !S.disc[route.ctx]) ensureDiscovery(route.ctx).then(() => { if (parseRoute().ctx === route.ctx) renderNav(parseRoute()); });
-  const views = { overview: viewOverview, nodes: viewNodes, node: viewNode, workloads: viewWorkloads, wl: viewWorkload, pods: viewPods,
+  const views = { overview: viewOverview, nodes: viewNodes, node: viewNode, workloads: viewWorkloads, wl: viewWorkload, pods: viewPods, namespaces: viewNamespaces,
     pod: viewPod, events: viewEvents, logs: viewLogs, r: viewResource, o: viewObject };
   main.scrollTop = 0;
   try {
@@ -197,8 +197,24 @@ function live(ms, fn) {
       $('span', b).textContent = e.message + ' Showing the last good data.';
     }
   };
-  every(ms, run);
-  return run();
+  if (typeof ms !== 'function') { every(ms, run); return run(); }
+  // dynamic interval (the Pods page lets you pick 1s…1min): a timeout chain that
+  // waits for each refresh to finish, so slow clusters never pile up requests
+  const gen = S.gen;
+  let timer = null;
+  const loop = () => {
+    if (gen !== S.gen) return;
+    timer = setTimeout(async () => {
+      if (gen !== S.gen) return;
+      if (!document.hidden) await run();
+      loop();
+    }, ms());
+    S.timers.push(timer);
+  };
+  S.kick = async () => { clearTimeout(timer); await run(); loop(); }; // apply a new interval now
+  const first = run();
+  first.then(loop, loop);
+  return first;
 }
 
 // ------------------------------------------------------------------ boot

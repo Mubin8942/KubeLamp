@@ -44,6 +44,20 @@ Lists show the same columns as `kubectl get`, including CRD printer columns. A *
 - **Local shell:** your own login shell in a real terminal, with `kubectl` preset to the cluster you're viewing, so `kubectl get pods`, `kubectl exec -it`, `kubectl edit` and k9s all work. The context switch applies only to that shell and never changes your kubeconfig. The local shell works on macOS and Linux.
 - **Tabs:** several sessions at once, and they stay open while you browse other pages.
 
+**Namespaces that need attention** (Cluster → Namespaces): for each namespace, only what needs a human, worst first.
+- **Pods:** crash-looping, pending or not-ready pods, and pods that restarted in the last hour.
+- **Workloads:** Deployments, StatefulSets and DaemonSets with unavailable replicas.
+- **Storage:** volume claims at 80% or more (critical at 90%), and claims that are pending or lost.
+- **Events:** warning events from the last hour, grouped by reason.
+- Healthy namespaces are hidden unless you ask for them.
+
+**Pods page:** each pod shows its restart count with how long ago the last restart was, and its status with the last restart reason and exit code, for example `OOMKilled (137)`. The page reloads live from the cluster every 5s. The picker at the top right offers 1s, 5s, 10s, 30s and 1 min, and your choice is remembered. It pauses while the tab is hidden.
+
+**Volume usage:** PVC lists and pages show real usage, not just the claimed size. KubeDeck needs no node or kubelet access: it finds a running pod that mounts the claim and runs `df` there through the exec API.
+- **Light on pods:** one exec per pod covers all of its claims, at most 3 run at once, and results are cached for 5 minutes. Forced refreshes are limited to once per 10s per volume.
+- **Fallbacks:** if a container has no shell or `df`, KubeDeck tries another container or pod.
+- **Limits:** claims with no running pod can't be measured, `subPath` mounts show the whole volume and are marked `~`, and `-read-only` mode turns this off because it needs exec.
+
 **Logs for a whole Deployment:**
 - **Merged stream:** every pod matched by the Deployment's label selector, live, colour-coded per pod.
 - **Rollouts:** new pods are picked up automatically.

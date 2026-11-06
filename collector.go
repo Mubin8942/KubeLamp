@@ -84,6 +84,12 @@ type Cluster struct {
 	detected   string         // auto-detected scope
 	detectedAt time.Time
 
+	fpMu     sync.Mutex // live pod lists (see FreshPods)
+	fp       map[string]freshPods
+	pvcMu    sync.Mutex // PVC usage cache (see pvcusage.go)
+	pvcCache map[string]PVCUsage
+	pvcLocks sync.Map // namespace → *sync.Mutex
+
 	mu         sync.RWMutex
 	snap       *Snapshot
 	history    map[string]*series

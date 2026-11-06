@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"kubedeck/internal/ws"
@@ -71,6 +72,21 @@ func (c *cluster) initGeneric() {
 			obj{"apiVersion": "v1", "kind": "PersistentVolumeClaim", "metadata": meta("payments", "redis-data-redis-0", nil),
 				"spec":   obj{"accessModes": []string{"ReadWriteOnce"}, "storageClassName": "ceph-rbd", "resources": obj{"requests": obj{"storage": "10Gi"}}},
 				"status": obj{"phase": "Bound", "capacity": obj{"storage": "10Gi"}}},
+			obj{"apiVersion": "v1", "kind": "PersistentVolumeClaim", "metadata": meta("payments", "api-data", nil),
+				"spec":   obj{"accessModes": []string{"ReadWriteMany"}, "storageClassName": "cephfs-retain", "resources": obj{"requests": obj{"storage": "10Gi"}}},
+				"status": obj{"phase": "Bound", "capacity": obj{"storage": "10Gi"}}},
+			obj{"apiVersion": "v1", "kind": "PersistentVolumeClaim", "metadata": meta("payments", "ledger-data", nil),
+				"spec":   obj{"accessModes": []string{"ReadWriteMany"}, "storageClassName": "cephfs-retain", "resources": obj{"requests": obj{"storage": "20Gi"}}},
+				"status": obj{"phase": "Bound", "capacity": obj{"storage": "20Gi"}}},
+			obj{"apiVersion": "v1", "kind": "PersistentVolumeClaim", "metadata": meta("payments", "ledger-cache", nil),
+				"spec":   obj{"accessModes": []string{"ReadWriteMany"}, "storageClassName": "cephfs-retain", "resources": obj{"requests": obj{"storage": "5Gi"}}},
+				"status": obj{"phase": "Bound", "capacity": obj{"storage": "5Gi"}}},
+			obj{"apiVersion": "v1", "kind": "PersistentVolumeClaim", "metadata": meta("payments", "old-export", nil),
+				"spec":   obj{"accessModes": []string{"ReadWriteMany"}, "storageClassName": "cephfs-retain", "resources": obj{"requests": obj{"storage": "50Gi"}}},
+				"status": obj{"phase": "Bound", "capacity": obj{"storage": "50Gi"}}},
+			obj{"apiVersion": "v1", "kind": "PersistentVolumeClaim", "metadata": meta("ecrm", "ecrm-uploads", nil),
+				"spec":   obj{"accessModes": []string{"ReadWriteMany"}, "storageClassName": "cephfs-retain", "resources": obj{"requests": obj{"storage": "5Gi"}}},
+				"status": obj{"phase": "Bound", "capacity": obj{"storage": "5Gi"}}},
 		)},
 		{"networking.k8s.io", "v1", "ingresses", "Ingress", true, mk(
 			obj{"apiVersion": "networking.k8s.io/v1", "kind": "Ingress", "metadata": meta("ecrm", "ecrm-frontend", nil),
@@ -405,6 +421,10 @@ func status(w http.ResponseWriter, code int, msg string) {
 // generic serves get/list/put/delete/patch for every resType, plus pod get/delete,
 // node patch and pod exec. Returns false to fall through to the classic handlers.
 func (c *cluster) generic(w http.ResponseWriter, r *http.Request) bool {
+	if r.URL.Path == "/__dfexecs" {
+		writeJSON(w, obj{"count": dfExecs.Load()})
+		return true
+	}
 	rt, ok := parseRoute(r.URL.Path)
 	if !ok {
 		return false
@@ -587,7 +607,55 @@ func normalize(v obj) obj {
 
 // ---------------------------------------------------------------- fake exec shell
 
+var dfExecs atomic.Int64
+
+// batch df probe: sh -c '<script>' sh path...  (what KubeDeck's PVC usage check sends)
+func (c *cluster) serveDfExec(w http.ResponseWriter, r *http.Request, ns, pod string, cmd []string) {
+	dfExecs.Add(1)
+	conn, _, err := ws.Accept(w, r, "v5.channel.k8s.io", "v4.channel.k8s.io", "channel.k8s.io")
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+	ctr := r.URL.Query().Get("container")
+	if ctr == "envoy" { // distroless sidecar: no shell
+		b, _ := json.Marshal(obj{"status": "Failure", "message": "OCI runtime exec failed: exec: \"sh\": executable file not found in $PATH"})
+		_ = conn.WriteMessage(ws.OpBinary, append([]byte{3}, b...))
+		return
+	}
+	var deploy string
+	c.mu.Lock()
+	for _, p := range c.pods {
+		if p.ns == ns && p.name == pod {
+			deploy = p.deploy
+		}
+	}
+	c.mu.Unlock()
+	var sb strings.Builder
+	for _, path := range cmd[4:] {
+		sb.WriteString("@@" + path + "\n")
+		found := false
+		for _, pm := range pvcMounts[deploy] {
+			if pm.path == path {
+				d := pvcDf[pm.claim]
+				sb.WriteString(fmt.Sprintf("10.1.2.3:6789:/volumes/csi/%s %d %d %d %d%% %s\n", pm.claim, d[0], d[1], d[0]-d[1], d[1]*100/d[0], path))
+				found = true
+			}
+		}
+		if !found {
+			sb.WriteString("df: " + path + ": No such file or directory\n")
+		}
+	}
+	_ = conn.WriteMessage(ws.OpBinary, append([]byte{1}, sb.String()...))
+	b, _ := json.Marshal(obj{"status": "Success"})
+	_ = conn.WriteMessage(ws.OpBinary, append([]byte{3}, b...))
+}
+
 func (c *cluster) serveExec(w http.ResponseWriter, r *http.Request, ns, pod string) {
+	if cmd := r.URL.Query()["command"]; len(cmd) >= 5 && cmd[0] == "sh" && cmd[1] == "-c" && strings.Contains(cmd[2], "df -P") {
+		c.serveDfExec(w, r, ns, pod, cmd)
+		return
+	}
 	conn, proto, err := ws.Accept(w, r, "v5.channel.k8s.io", "v4.channel.k8s.io", "channel.k8s.io")
 	if err != nil {
 		return

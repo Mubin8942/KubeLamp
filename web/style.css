@@ -339,3 +339,30 @@ dialog::backdrop { background: rgba(5,9,14,.55); }
   .g2, .g3 { grid-template-columns: 1fr; }
   .tbtn span { display: none; }
 }
+
+/* 1.2: refresh-rate picker, restart sub-lines, namespace attention cards, volume usage */
+.pollsel { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 13px; padding: 0 4px 0 10px; height: 32px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.pollsel select { border: 0; background: transparent; color: var(--ink); font: inherit; padding: 4px 2px; outline: none; cursor: pointer; }
+.livedot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 0 color-mix(in srgb, var(--good) 50%, transparent); animation: kdpulse 2s infinite; }
+@keyframes kdpulse { 70% { box-shadow: 0 0 0 6px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+.chk { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); cursor: pointer; }
+.nscard { margin-top: 12px; border-left: 3px solid var(--warning); }
+.nscard.critical { border-left-color: var(--critical); }
+.nscard h3 a { color: var(--ink); text-decoration: none; }
+.nscard h3 a:hover { color: var(--accent-ink); }
+ul.attn { list-style: none; margin: 4px 0 0; padding: 0; }
+ul.attn li { display: flex; gap: 10px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--line); }
+ul.attn li:first-child { border-top: 0; }
+ul.attn li a { color: var(--ink); font-weight: 500; text-decoration: none; }
+ul.attn li a:hover { color: var(--accent-ink); }
+ul.attn .ai { width: 16px; flex: none; display: inline-flex; align-self: center; color: var(--warning); }
+ul.attn .ai svg { width: 14px; height: 14px; }
+ul.attn li.critical .ai { color: var(--critical); }
+.empty-ok { margin-top: 12px; }
+.tile .value.crit { color: var(--critical); }
+.tile .value.warn { color: var(--warning); }
+.pct-critical { color: var(--critical); font-weight: 600; }
+.pct-warning { color: var(--warning); font-weight: 600; }
+td .mcell { min-width: 150px; }
+.sdot { width: 8px; height: 8px; border-radius: 50%; background: var(--warning); display: inline-block; }
+ul.attn li.critical .sdot { background: var(--critical); }

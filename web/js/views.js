@@ -363,9 +363,11 @@ async function viewWorkload(route) {
 function podColumns(ctx, compact) {
   const cols = [
     { key: 'name', label: 'Pod', cls: 'name', render: p => `${esc(p.name)}<span class="sub">${esc(p.namespace)}${p.owner ? ' · ' + esc(p.owner) : ''}</span>` },
-    { key: 'status', label: 'Status', render: p => stLabel(p.status, p.problem ? 'critical' : statusClass(p.status)) + (p.lastReason ? ` <span class="muted">last: ${esc(p.lastReason)}</span>` : '') },
+    { key: 'status', label: 'Status', render: p => stLabel(p.status, p.problem ? 'critical' : statusClass(p.status))
+        + (p.restarts > 0 && p.lastReason ? `<span class="sub">last restart: ${esc(p.lastReason)}${p.lastExit != null ? ` (${p.lastExit})` : ''}</span>` : '') },
     { key: 'ready', label: 'Ready', num: true },
-    { key: 'restarts', label: 'Restarts', num: true },
+    { key: 'restarts', label: 'Restarts', num: true, render: p => p.restarts > 0
+        ? `${p.restarts}${p.lastRestart ? `<span class="sub">${age(p.lastRestart)} ago</span>` : ''}` : '0' },
     { key: 'cpu', label: 'CPU used / req / lim', num: true, sort: p => p.cpu.used, render: p => `${p.hasMetrics ? fmtCPU(p.cpu.used) : '—'} <span class="muted">/ ${fmtCPU(p.cpu.req)} / ${fmtCPU(p.cpu.lim)}</span>` },
     { key: 'mem', label: 'Memory used / req / lim', num: true, sort: p => p.mem.used, render: p => `${p.hasMetrics ? fmtMem(p.mem.used) : '—'} <span class="muted">/ ${fmtMem(p.mem.req)} / ${fmtMem(p.mem.lim)}</span>` },
   ];
@@ -401,8 +403,21 @@ async function viewPods(route) {
     <div class="card" id="pBox"><div class="muted">Loading…</div></div>`;
   if (route.q.status) $('#pst').value = route.q.status;
   bindRefresh(ctx, () => render());
+  // refresh-rate picker (top right), remembered across visits
+  const rates = [[1000, '1s'], [5000, '5s'], [10000, '10s'], [30000, '30s'], [60000, '1 min']];
+  let rate = 5000;
+  try { rate = +localStorage.getItem('kd.pods.poll') || 5000; } catch {}
+  if (!rates.some(([ms]) => ms === rate)) rate = 5000;
+  $('.page-head .right').insertAdjacentHTML('afterbegin', `<label class="pollsel" title="How often this page reloads pods from the cluster"><span class="livedot"></span>Refresh
+    <select id="pollRate">${rates.map(([ms, l]) => `<option value="${ms}" ${ms === rate ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`);
+  $('#pollRate').addEventListener('change', e => {
+    rate = +e.target.value;
+    try { localStorage.setItem('kd.pods.poll', String(rate)); } catch {}
+    S.kick?.();
+  });
   const render = async () => {
-    const d = await api(`pods?ctx=${enc(ctx)}&ns=${enc(S.ns)}`);
+    const d = await api(`pods?ctx=${enc(ctx)}&ns=${enc(S.ns)}&fresh=1`);
+    const up = $('#updated'); if (up) up.textContent = (d.stale ? 'showing cached data · ' : '') + 'updated ' + new Date().toLocaleTimeString();
     const q = $('#pq').value.toLowerCase(), stf = $('#pst').value;
     const rows = d.pods.filter(p => (!q || p.name.toLowerCase().includes(q) || (p.owner || '').toLowerCase().includes(q) || (p.node || '').toLowerCase().includes(q))
       && (!stf || (stf === 'problem' ? p.problem : p.phase === stf)));
@@ -415,7 +430,7 @@ async function viewPods(route) {
   };
   $('#pst').addEventListener('change', render);
   $('#pq').addEventListener('input', render);
-  await live(15000, render);
+  await live(() => rate, render);
 }
 
 async function viewPod(route) {
@@ -718,3 +733,74 @@ async function viewLogs(route) {
   if (ready()) start();
 }
 
+
+// ------------------------------------------------------------------ NAMESPACES: only what needs attention
+async function viewNamespaces(route) {
+  const ctx = route.ctx;
+  const sum = (await api('clusters')).find(c => c.name === ctx);
+  main.innerHTML = clusterHead(sum, 'Namespaces', `<div class="crumbs"><a href="${ctxPath(ctx)}/overview">${esc(shortName(ctx))}</a></div>`) + `
+    <div class="filters"><label class="chk"><input type="checkbox" id="nsHealthy"> Show healthy namespaces</label>
+      <span class="muted" id="nsScan"></span>
+      <a class="btn ghost" href="${listHref(ctx, '', 'namespaces')}" style="margin-left:auto">All namespace objects</a></div>
+    <div id="nsBox"><div class="muted">Loading…</div></div>`;
+  let data = null, scanning = false, lastScan = 0, showHealthy = false;
+  bindRefresh(ctx, () => scan(true));
+  $('#nsHealthy').addEventListener('change', e => { showHealthy = e.target.checked; draw(); });
+
+  const itemHref = (ns, it) => it.kind === 'pod' ? `${ctxPath(ctx)}/pod/${enc(ns)}/${enc(it.name)}`
+    : it.kind === 'workload' ? `${ctxPath(ctx)}/wl/${enc(it.ref)}/${enc(ns)}/${enc(it.name)}`
+    : it.kind === 'pvc' ? objHref(ctx, '', 'persistentvolumeclaims', ns, it.name)
+    : `${ctxPath(ctx)}/events`;
+  const draw = () => {
+    if (!data) return;
+    const all = data.namespaces.filter(n => !S.ns || n.name === S.ns);
+    const bad = all.filter(n => n.sev !== 'ok'), ok = all.filter(n => n.sev === 'ok');
+    const crit = all.reduce((a, n) => a + n.items.filter(i => i.sev === 'critical').length, 0);
+    const warn = all.reduce((a, n) => a + n.items.filter(i => i.sev === 'warning').length, 0);
+    const stor = all.reduce((a, n) => a + n.items.filter(i => i.kind === 'pvc').length, 0);
+    const tile = (label, val, foot, cls) => `<div class="card tile"><div class="label">${label}</div><div class="value ${cls || ''}">${val}</div><div class="foot">${foot}</div></div>`;
+    $('#nsBox').innerHTML = `
+      <div class="tiles" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+        ${tile('Need attention', bad.length, `of ${all.length} namespaces`, bad.length ? 'warn' : '')}
+        ${tile('Critical', crit, 'failing pods, workloads or volumes', crit ? 'crit' : '')}
+        ${tile('Warnings', warn, 'restarts, rollouts, events (last hour)', warn ? 'warn' : '')}
+        ${tile('Storage', stor, `volume claims ≥ ${data.warnPct}% full or unhealthy`, stor ? 'warn' : '')}
+      </div>
+      ${bad.length ? bad.map(n => `<div class="card nscard ${n.sev}"><div class="card-head">
+          <h3><a href="${ctxPath(ctx)}/pods" data-setns="${esc(n.name)}">${esc(n.name)}</a></h3>
+          ${stLabel(n.sev === 'critical' ? 'Critical' : 'Warning', n.sev)}
+          <span class="cap">${n.running}/${n.pods} pods running · ${n.restarts} restarts · ${n.pvcs} volume claim${n.pvcs === 1 ? '' : 's'}</span></div>
+          <ul class="attn">${n.items.map(it => `<li class="${it.sev}"><span class="ai"><i class="sdot"></i></span>
+            <a href="${itemHref(n.name, it)}">${esc(it.name)}</a><span class="muted">${esc(it.detail)}</span></li>`).join('')}</ul></div>`).join('')
+        : `<div class="card empty-ok"><b>Nothing needs attention.</b><span class="muted"> Every pod, workload and volume checked looks healthy.</span></div>`}
+      ${ok.length ? (showHealthy
+        ? `<div class="card" style="margin-top:12px"><h3>Healthy namespaces</h3><div class="chips" style="margin-top:8px">${ok.map(n => `<a class="chip" href="${ctxPath(ctx)}/pods" data-setns="${esc(n.name)}">${esc(n.name)} <span class="muted">${n.running}/${n.pods}</span></a>`).join('')}</div></div>`
+        : `<div class="muted" style="margin-top:10px">${ok.length} healthy namespace${ok.length === 1 ? '' : 's'} hidden.</div>`) : ''}`;
+    $$('[data-setns]', $('#nsBox')).forEach(a => a.addEventListener('click', e => {
+      e.preventDefault();
+      S.ns = a.dataset.setns; try { localStorage.setItem('kd.ns.' + ctx, S.ns); } catch {}
+      renderTop(parseRoute()); location.hash = `${ctxPath(ctx)}/pods`;
+    }));
+    const up = $('#updated'); if (up) up.textContent = 'updated ' + new Date().toLocaleTimeString();
+  };
+  const load = async () => { data = await api(`nsoverview?ctx=${enc(ctx)}`); draw(); };
+
+  // storage: one df per pod that mounts claims; the server caches readings for 5 minutes,
+  // and namespaces are measured one at a time
+  const scan = async force => {
+    if (scanning || !data || !data.exec) return;
+    const todo = data.namespaces.filter(n => n.pvcs > 0 && (!S.ns || n.name === S.ns));
+    if (!todo.length) return;
+    if (!force && Date.now() - lastScan < 5 * 60 * 1000 && todo.every(n => !n.pvcUnchecked)) return;
+    scanning = true; lastScan = Date.now();
+    try {
+      for (let i = 0; i < todo.length; i++) {
+        if (parseRoute().section !== 'namespaces') return;
+        const el = $('#nsScan'); if (el) el.textContent = `Checking storage ${i + 1}/${todo.length}…`;
+        try { await loadPvcUsage(ctx, todo[i].name, { refresh: !!force }); } catch {}
+        await load();
+      }
+    } finally { scanning = false; const el = $('#nsScan'); if (el) el.textContent = ''; }
+  };
+  await live(20000, async () => { await load(); scan(false); });
+}
