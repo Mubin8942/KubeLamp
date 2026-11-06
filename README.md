@@ -51,6 +51,8 @@ Lists show the same columns as `kubectl get`, including CRD printer columns. A *
 - **Events:** warning events from the last hour, grouped by reason.
 - Healthy namespaces are hidden unless you ask for them.
 
+**All clusters page:** every cluster card lists the namespaces with critical or warning issues, worst first, with the first problem in each. It uses the same rules as the Namespaces page, so you see trouble without opening the cluster. Storage problems appear once a namespace's volumes have been measured.
+
 **Pods page:** each pod shows its restart count with how long ago the last restart was, and its status with the last restart reason and exit code, for example `OOMKilled (137)`. The page reloads live from the cluster every 5s. The picker at the top right offers 1s, 5s, 10s, 30s and 1 min, and your choice is remembered. It pauses while the tab is hidden.
 
 **Volume usage:** PVC lists and pages show real usage, not just the claimed size. KubeDeck needs no node or kubelet access: it finds a running pod that mounts the claim and runs `df` there through the exec API.
