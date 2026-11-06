@@ -6,6 +6,19 @@ const ftJoin = (dir, name) => (dir === '/' ? '' : dir.replace(/\/+$/, '')) + '/'
 const ftParent = p => { const i = p.replace(/\/+$/, '').lastIndexOf('/'); return i <= 0 ? '/' : p.slice(0, i); };
 const ftWhen = s => s ? new Date(s * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '';
 
+function ftMountOf(mounts, p) {
+  let best = null;
+  for (const m of mounts) if ((m.path === '/' || p === m.path || p.startsWith(m.path.replace(/\/+$/, '') + '/')) && (!best || m.path.length > best.path.length)) best = m;
+  return best;
+}
+function ftVolBadge(mounts, p) {
+  const m = ftMountOf(mounts, p);
+  if (!m) return `<span class="ft-vol warn" title="Files here live in the container's own writable layer: they count against the node's ephemeral storage and disappear when the container restarts.">Container filesystem · not persistent</span>`;
+  const ro = m.readOnly ? ' · read-only' : '';
+  const t = { pvc: `PVC ${m.claim || m.detail || ''}`, emptyDir: 'emptyDir', configMap: 'ConfigMap', secret: 'Secret', projected: 'Projected volume', hostPath: 'hostPath', nfs: 'NFS', cephfs: 'CephFS' }[m.kind] || m.kind;
+  return `<span class="ft-vol ${m.readOnly ? 'warn' : 'good'}" title="${esc(m.detail || '')}">${esc(t)}${m.subPath ? ' · subPath ' + esc(m.subPath) : ''}${ro}</span>`;
+}
+
 function ftXhr(url, file, onProgress, hold) {
   return new Promise(resolve => {
     const x = new XMLHttpRequest();
@@ -36,7 +49,7 @@ async function viewFileTransfer(route) {
 
   main.innerHTML = `
     <div class="page-head"><div><div class="crumbs"><a href="${ctxPath(ctx)}/overview">${esc(shortName(ctx))}</a> / <a href="${ctxPath(ctx)}/tools">Tools</a></div>
-      <h1>Pod File Transfer</h1>
+      <h1>File Transfer</h1>
       <div class="sub"><span>Browse a container's files, download logs and assets, upload files. Works through the pod exec API; no agent is installed in the pod.</span></div></div></div>
     ${roOnly ? `<div class="banner err"><b>Read-only mode.</b><span>This tool runs commands inside pods, so it is disabled.</span></div>` : ''}
     <div class="card ct-form">
@@ -74,18 +87,7 @@ async function viewFileTransfer(route) {
     await go(F.path);
   }
   const ctrMounts = () => ((podInfo && podInfo.containers.find(c => c.name === F.container)) || { mounts: [] }).mounts;
-  function mountOf(p) {
-    let best = null;
-    for (const m of ctrMounts()) if ((m.path === '/' || p === m.path || p.startsWith(m.path.replace(/\/+$/, '') + '/')) && (!best || m.path.length > best.path.length)) best = m;
-    return best;
-  }
-  function volBadge(p) {
-    const m = mountOf(p);
-    if (!m) return `<span class="ft-vol warn" title="Files here live in the container's own writable layer: they count against the node's ephemeral storage and disappear when the container restarts.">Container filesystem · not persistent</span>`;
-    const ro = m.readOnly ? ' · read-only' : '';
-    const t = { pvc: `PVC ${m.claim || m.detail || ''}`, emptyDir: 'emptyDir', configMap: 'ConfigMap', secret: 'Secret', projected: 'Projected volume', hostPath: 'hostPath', nfs: 'NFS', cephfs: 'CephFS' }[m.kind] || m.kind;
-    return `<span class="ft-vol ${m.readOnly ? 'warn' : 'good'}" title="${esc(m.detail || '')}">${esc(t)}${m.subPath ? ' · subPath ' + esc(m.subPath) : ''}${ro}</span>`;
-  }
+  const volBadge = p => ftVolBadge(ctrMounts(), p);
 
   // ---- directory listing
   let seq = 0;

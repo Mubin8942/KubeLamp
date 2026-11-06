@@ -89,6 +89,7 @@ func ftAcquire(key string) (func(), error) {
 
 const ftListScript = `# kl-ft list
 d=$1
+echo "@@id|$(id 2>/dev/null)"
 [ -d "$d" ] || { echo "@@err|not a directory (or it does not exist)"; exit 0; }
 { [ -r "$d" ] && [ -x "$d" ]; } || { echo "@@err|permission denied for the container user"; exit 0; }
 cd "$d" || { echo "@@err|cannot enter the directory"; exit 0; }
@@ -727,11 +728,15 @@ func (s *Server) ftRoutes(mux *http.ServeMux) {
 			return
 		}
 		entries, more, msg := parseFtList(out)
+		user := ""
+		if v := ftFacts(out)["id"]; len(v) > 0 {
+			user = strings.TrimSpace(v[0])
+		}
 		if msg != "" {
-			writeJSON(w, 200, map[string]any{"path": p, "error": msg, "entries": entries})
+			writeJSON(w, 200, map[string]any{"path": p, "error": msg, "entries": entries, "user": user})
 			return
 		}
-		writeJSON(w, 200, map[string]any{"path": p, "entries": entries, "more": more, "max": ftListMax})
+		writeJSON(w, 200, map[string]any{"path": p, "entries": entries, "more": more, "max": ftListMax, "user": user})
 	})
 
 	// size check for the UI before it starts a download
@@ -779,6 +784,7 @@ func (s *Server) ftRoutes(mux *http.ServeMux) {
 		writeJSON(w, 200, resp)
 	})
 
+	mux.HandleFunc("GET /api/tools/files/view", s.ftView)
 	mux.HandleFunc("GET /api/tools/files/download", s.ftDownload)
 	mux.HandleFunc("POST /api/tools/files/upload", s.ftUpload)
 
@@ -1110,4 +1116,120 @@ func (s *Server) ftUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("file transfer: upload %s:%s (%s) %d bytes in %s, verified by %s", t.key(), target, t.container, size, time.Since(start).Round(time.Millisecond), verified)
 	writeJSON(w, 200, map[string]any{"ok": true, "path": target, "size": size, "sha256": sum, "verified": verified, "volume": where})
+}
+
+const (
+	ftViewMax = 512 << 10
+	ftViewDef = 64 << 10
+)
+
+// hexDump renders the first bytes of a binary file like `xxd`.
+func hexDump(b []byte) string {
+	if len(b) > 512 {
+		b = b[:512]
+	}
+	var sb strings.Builder
+	for off := 0; off < len(b); off += 16 {
+		end := off + 16
+		if end > len(b) {
+			end = len(b)
+		}
+		fmt.Fprintf(&sb, "%08x  ", off)
+		for i := off; i < off+16; i++ {
+			if i < end {
+				fmt.Fprintf(&sb, "%02x ", b[i])
+			} else {
+				sb.WriteString("   ")
+			}
+			if i == off+7 {
+				sb.WriteByte(' ')
+			}
+		}
+		sb.WriteString(" |")
+		for _, c := range b[off:end] {
+			if c >= 32 && c < 127 {
+				sb.WriteByte(c)
+			} else {
+				sb.WriteByte('.')
+			}
+		}
+		sb.WriteString("|\n")
+	}
+	return sb.String()
+}
+
+// ftView reads the start (or end) of a file for the File Explorer: at most 512 KiB, as text or,
+// for binary files, a hex preview. Only regular files are read (never FIFOs or devices, which
+// could block), and the container's own user permissions apply.
+func (s *Server) ftView(w http.ResponseWriter, r *http.Request) {
+	if s.denyExecTool(w) {
+		return
+	}
+	t, ok := s.ftTarget(w, r)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	p, err := cleanAbs(q.Get("path"))
+	if err != nil {
+		writeErr(w, 400, err)
+		return
+	}
+	n, _ := strconv.Atoi(q.Get("bytes"))
+	if n <= 0 {
+		n = ftViewDef
+	}
+	if n > ftViewMax {
+		n = ftViewMax
+	}
+	mode := "head"
+	if q.Get("mode") == "tail" {
+		mode = "tail"
+	}
+	st, err := s.ftStat(r.Context(), t, p, false)
+	if err != nil {
+		writeErr(w, 502, err)
+		return
+	}
+	switch {
+	case st.Missing:
+		writeErr(w, 404, errors.New("no such file"))
+		return
+	case st.Dir:
+		writeErr(w, 400, errors.New("this is a folder"))
+		return
+	case !st.File:
+		writeErr(w, 400, errors.New("only regular files can be read (not devices, sockets or pipes)"))
+		return
+	case !st.Readable:
+		writeErr(w, 403, errors.New("permission denied: the container's user cannot read this file"))
+		return
+	case mode == "tail" && !st.Tools["tail"], !st.Tools["head"]:
+		writeErr(w, 501, errors.New("head/tail are not available in this container"))
+		return
+	}
+	script := ftCatScript
+	if mode == "tail" {
+		script = ftTailScript
+	}
+	out, err := t.c.ftRun(r.Context(), t.ns, t.pod.Metadata.Name, t.container, script, 30*time.Second, strconv.Itoa(n), p)
+	if err != nil {
+		writeErr(w, 502, err)
+		return
+	}
+	b := []byte(out)
+	resp := map[string]any{"path": p, "mode": mode, "bytes": n, "shown": len(b), "size": st.Size, "binary": false}
+	// size 0 with content happens for /proc and /sys files: trust what we read
+	trunc := len(b) >= n
+	if st.Size > int64(len(b)) {
+		trunc = true
+	}
+	resp["truncated"] = trunc
+	if bytes.IndexByte(b, 0) >= 0 {
+		resp["binary"], resp["hex"], resp["text"] = true, hexDump(b), ""
+	} else {
+		resp["text"] = strings.ToValidUTF8(string(b), "\uFFFD")
+	}
+	log.Printf("file explorer: read %s:%s (%s) %s %d bytes", t.key(), p, t.container, mode, len(b))
+	writeJSON(w, 200, resp)
 }

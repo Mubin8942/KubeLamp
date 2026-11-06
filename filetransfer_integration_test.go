@@ -158,6 +158,36 @@ func TestFileTransferAgainstMock(t *testing.T) {
 		t.Errorf("container without a shell should fail")
 	}
 
+	// file explorer: view text (head and tail), binary preview, folder, missing, who we run as
+	if _, m = getJSON(ts.URL, "/api/tools/files/list?"+q(backend, "app", "path", "/uploads")); m["user"] == "" || m["user"] == nil {
+		t.Errorf("list should report the container user: %v", m["user"])
+	}
+	code, m = getJSON(ts.URL, "/api/tools/files/view?"+q(backend, "app", "path", "/uploads/notes.txt"))
+	if code != 200 || m["text"] != "hello from the mock volume\n" || m["truncated"] != false || m["binary"] != false {
+		t.Errorf("view text: %d %v", code, m)
+	}
+	code, m = getJSON(ts.URL, "/api/tools/files/view?"+q(backend, "app", "path", "/uploads/storage/logs/laravel.log", "mode", "tail", "bytes", "2048"))
+	if txt, _ := m["text"].(string); code != 200 || len(txt) != 2048 || !strings.HasSuffix(txt, "LAST-LINE-MARKER\n") || m["truncated"] != true {
+		t.Errorf("view tail: %d shown=%v truncated=%v", code, m["shown"], m["truncated"])
+	}
+	code, m = getJSON(ts.URL, "/api/tools/files/view?"+q(backend, "app", "path", "/uploads/storage/logs/laravel.log", "bytes", "99999999"))
+	if sh, _ := m["shown"].(float64); code != 200 || sh != 512<<10 {
+		t.Errorf("view must cap at 512 KiB: %d shown=%v", code, m["shown"])
+	}
+	code, m = getJSON(ts.URL, "/api/tools/files/view?"+q(backend, "app", "path", "/uploads/images/pixel.bin"))
+	if hx, _ := m["hex"].(string); code != 200 || m["binary"] != true || !strings.Contains(hx, "89 50 4e 47") || m["text"] != "" {
+		t.Errorf("view binary: %d %v", code, m)
+	}
+	if code, _ = getJSON(ts.URL, "/api/tools/files/view?"+q(backend, "app", "path", "/uploads/reports")); code != 400 {
+		t.Errorf("view folder: %d", code)
+	}
+	if code, _ = getJSON(ts.URL, "/api/tools/files/view?"+q(backend, "app", "path", "/uploads/nope.txt")); code != 404 {
+		t.Errorf("view missing: %d", code)
+	}
+	if code, _ = getJSON(ro.URL, "/api/tools/files/view?"+q(backend, "app", "path", "/uploads/notes.txt")); code != 403 {
+		t.Errorf("view in read-only mode: %d", code)
+	}
+
 	// download: file, tail, over the limit, folder, missing
 	dl := func(p string, kv ...string) (int, http.Header, []byte) {
 		r, err := http.Get(ts.URL + "/api/tools/files/download?" + q(backend, "app", append([]string{"path", p}, kv...)...))

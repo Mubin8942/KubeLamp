@@ -291,8 +291,8 @@ function openPop(anchor, items, { search = false, placeholder = 'Filter…' } = 
   if (popAnchor === anchor) { closePop(); return; }
   popAnchor = anchor;
   const render = (q = '') => {
-    const list = items.filter(it => it === 'sep' || !q || (it.label + ' ' + (it.sub || '')).toLowerCase().includes(q));
-    $('.opts', pop).innerHTML = list.map((it, i) => it === 'sep' ? '<hr>' :
+    const list = items.filter(it => it === 'sep' || it.head || !q || (it.label + ' ' + (it.sub || '')).toLowerCase().includes(q));
+    $('.opts', pop).innerHTML = list.map((it, i) => it === 'sep' ? '<hr>' : it.head ? `<div class="pop-head">${esc(it.head)}</div>` :
       `<button class="opt ${it.on ? 'on' : ''} ${it.danger ? 'danger' : ''}" data-i="${items.indexOf(it)}" type="button">${it.icon || ''}<span>${esc(it.label)}</span>${it.sub ? `<span class="sub">${esc(it.sub)}</span>` : ''}</button>`).join('')
       || '<div class="muted" style="padding:8px 10px">No matches</div>';
     $$('.opt', pop).forEach(b => b.addEventListener('click', () => { const it = items[+b.dataset.i]; closePop(); it.run && it.run(); }));

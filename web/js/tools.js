@@ -1,9 +1,12 @@
 'use strict';
 /* Tools menu (top bar) and the tools it opens. Add a tool by appending to TOOLS. */
 
+const TOOL_GROUPS = ['Networking', 'Files'];
 const TOOLS = [
-  { id: 'conntest', name: 'Pod Connectivity Inspector', desc: 'Test TCP/HTTP reach from pods to IPs, ports and domains, and check network policies.', needsExec: true, view: viewConnTest },
-  { id: 'files', name: 'Pod File Transfer', desc: 'Browse a container\'s files, download logs and assets, upload files into mounted volumes.', needsExec: true, view: viewFileTransfer },
+  { id: 'conntest', group: 'Networking', name: 'Pod Connectivity Inspector', desc: 'Test TCP/HTTP reach from pods to IPs, ports and domains, and check network policies.', needsExec: true, view: viewConnTest },
+  { id: 'dns', group: 'Networking', name: 'DNS Checker', desc: 'Resolve names from inside pods and compare the IPs each pod gets, with the pod\'s DNS settings.', needsExec: true, view: viewDnsCheck },
+  { id: 'files', group: 'Files', name: 'File Transfer', desc: 'Download logs and assets from pods and upload files into mounted volumes, with size limits.', needsExec: true, view: viewFileTransfer },
+  { id: 'explorer', group: 'Files', name: 'File Explorer', desc: 'Browse a container\'s folders and read any file its user is allowed to read.', needsExec: true, view: viewFileExplorer },
 ];
 
 const toolsHref = (ctx, id) => `${ctxPath(ctx)}/tools/${id}`;
@@ -12,21 +15,26 @@ const firstCtx = () => (S.clusters.find(c => c.status !== 'error') || {}).name |
 $('#toolsBtn').addEventListener('click', () => {
   const route = parseRoute();
   const ctx = route.ctx || firstCtx();
-  openPop($('#toolsBtn'), TOOLS.map(t => {
-    const off = t.needsExec && S.info && S.info.readOnly;
-    return {
-      label: t.name, sub: off ? 'read-only' : '', on: route.section === 'tools' && route.args[0] === t.id,
-      run: () => off ? toast('Disabled: KubeLamp was started with -read-only', 'err')
-        : ctx ? (location.hash = toolsHref(ctx, t.id)) : toast('No cluster is available yet', 'err'),
-    };
-  }));
+  const items = [];
+  for (const g of TOOL_GROUPS) {
+    items.push({ head: g });
+    for (const t of TOOLS.filter(x => x.group === g)) {
+      const off = t.needsExec && S.info && S.info.readOnly;
+      items.push({
+        label: t.name, sub: off ? 'read-only' : '', on: route.section === 'tools' && route.args[0] === t.id,
+        run: () => off ? toast('Disabled: KubeLamp was started with -read-only', 'err')
+          : ctx ? (location.hash = toolsHref(ctx, t.id)) : toast('No cluster is available yet', 'err'),
+      });
+    }
+  }
+  openPop($('#toolsBtn'), items);
 });
 
 async function viewTools(route) {
   const t = TOOLS.find(x => x.id === route.args[0]);
   if (t) return t.view(route);
-  main.innerHTML = `<div class="page-head"><div><h1>Tools</h1></div></div>
-    <div class="tools-grid">${TOOLS.map(x => `<a class="card tool-card" href="${toolsHref(route.ctx, x.id)}"><h3>${esc(x.name)}</h3><div class="cap">${esc(x.desc)}</div></a>`).join('')}</div>`;
+  main.innerHTML = `<div class="page-head"><div><h1>Tools</h1></div></div>` + TOOL_GROUPS.map(g => `<div class="tools-group">${esc(g)}</div>
+    <div class="tools-grid">${TOOLS.filter(x => x.group === g).map(x => `<a class="card tool-card" href="${toolsHref(route.ctx, x.id)}"><h3>${esc(x.name)}</h3><div class="cap">${esc(x.desc)}</div></a>`).join('')}</div>`).join('');
 }
 
 // ------------------------------------------------------------------ connectivity inspector

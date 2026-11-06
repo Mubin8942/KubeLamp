@@ -745,6 +745,10 @@ func (c *cluster) serveConnExec(w http.ResponseWriter, r *http.Request, ns, pod 
 }
 
 func (c *cluster) serveExec(w http.ResponseWriter, r *http.Request, ns, pod string) {
+	if cmd := r.URL.Query()["command"]; len(cmd) >= 6 && cmd[0] == "sh" && cmd[1] == "-c" && strings.Contains(cmd[2], "# kl-dns") {
+		c.serveDNSExec(w, r, ns, pod, cmd)
+		return
+	}
 	if cmd := r.URL.Query()["command"]; len(cmd) >= 4 && cmd[0] == "sh" && cmd[1] == "-c" && strings.Contains(cmd[2], "# kl-ft") {
 		c.serveFtExec(w, r, ns, pod, cmd)
 		return
@@ -838,6 +842,7 @@ func seedPVC(dir, claim string) {
 			_ = os.WriteFile(p, []byte(s), 0o644)
 		}
 		w("notes.txt", "hello from the mock volume\n")
+		w("images/pixel.bin", "\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x01")
 		w("reports/2026-q3.csv", "id,amount\n1,10\n2,20\n")
 		w("images/logo.svg", "<svg xmlns='http://www.w3.org/2000/svg'/>")
 		w("odd name & spaces/file with 'quote'.txt", "tricky names\n")
@@ -943,5 +948,98 @@ func (c *cluster) serveFtExec(w http.ResponseWriter, r *http.Request, ns, pod st
 			"details": obj{"causes": []obj{{"reason": "ExitCode", "message": strconv.Itoa(ee.ExitCode())}}}})
 		return
 	}
+	status(obj{"status": "Success"})
+}
+
+// ---- DNS checker. Answers are scripted: api.example.com differs on the 3rd node (a split-horizon
+// style problem), slow.example.com times out there, *.invalid and blocked.example don't exist,
+// kubernetes.default is the cluster IP, everything else gets a stable fake address. binge-web uses
+// nslookup output, ledger-worker has no DNS tool, redis has no shell.
+func (c *cluster) serveDNSExec(w http.ResponseWriter, r *http.Request, ns, pod string, cmd []string) {
+	conn, _, err := ws.Accept(w, r, "v5.channel.k8s.io", "v4.channel.k8s.io", "channel.k8s.io")
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+	status := func(m obj) {
+		b, _ := json.Marshal(m)
+		_ = conn.WriteMessage(ws.OpBinary, append([]byte{3}, b...))
+	}
+	var deploy, node string
+	c.mu.Lock()
+	for _, p := range c.pods {
+		if p.ns == ns && p.name == pod {
+			deploy, node = p.deploy, p.node
+		}
+	}
+	c.mu.Unlock()
+	if deploy == "redis" || r.URL.Query().Get("container") == "envoy" {
+		status(obj{"status": "Failure", "message": "OCI runtime exec failed: exec: \"sh\": executable file not found in $PATH"})
+		return
+	}
+	srv := cmd[5]
+	names := cmd[6:]
+	split := len(c.nodes) > 2 && node == c.nodes[2]
+	var sb strings.Builder
+	tool := "getent"
+	switch deploy {
+	case "binge-web":
+		tool = "nslookup"
+	case "ledger-worker":
+		tool = "none"
+	}
+	if tool == "none" {
+		sb.WriteString("@@tools| timeout\n")
+	} else {
+		sb.WriteString("@@tools| getent nslookup timeout\n")
+	}
+	sb.WriteString("@@resolv|nameserver 10.96.0.10\n@@resolv|search " + ns + ".svc.cluster.local svc.cluster.local cluster.local\n@@resolv|options ndots:5\n")
+	for i, n := range names {
+		id := i + 1
+		var ips []string
+		rc, text := 0, ""
+		switch {
+		case tool == "none":
+		case srv != "" && srv != "10.96.0.10":
+			rc, text = 124, ";; connection timed out; no servers could be reached"
+		case strings.HasSuffix(n, ".invalid") || n == "blocked.example":
+			rc, text = 2, "** server can't find "+n+": NXDOMAIN"
+		case n == "slow.example.com" && split:
+			rc, text = 124, ""
+		case n == "kubernetes.default" || n == "kubernetes.default.svc.cluster.local":
+			ips = []string{"10.96.0.1"}
+		case n == "api.example.com" && split:
+			ips = []string{"10.1.9.9"}
+		case n == "api.example.com":
+			ips = []string{"10.1.1.5", "10.1.1.6"}
+		default:
+			h := 0
+			for _, ch := range n {
+				h = (h*31 + int(ch)) % 65000
+			}
+			ips = []string{fmt.Sprintf("10.50.%d.%d", h/250%250, h%250+1)}
+		}
+		fmt.Fprintf(&sb, "@@d|%d|%s|%d\n", id, tool, rc)
+		switch {
+		case tool == "getent":
+			for _, ip := range ips {
+				fmt.Fprintf(&sb, "@@o|%d|%s       STREAM %s\n@@o|%d|%s       DGRAM\n", id, ip, n, id, ip)
+			}
+			if text != "" {
+				fmt.Fprintf(&sb, "@@o|%d|%s\n", id, text)
+			}
+		case tool == "nslookup":
+			fmt.Fprintf(&sb, "@@o|%d|Server:\t\t10.96.0.10\n@@o|%d|Address:\t10.96.0.10:53\n@@o|%d|\n", id, id, id)
+			if len(ips) > 0 {
+				fmt.Fprintf(&sb, "@@o|%d|Name:\t%s\n", id, n)
+				for _, ip := range ips {
+					fmt.Fprintf(&sb, "@@o|%d|Address: %s\n", id, ip)
+				}
+			} else {
+				fmt.Fprintf(&sb, "@@o|%d|%s\n", id, "** server can't find "+n+": NXDOMAIN")
+			}
+		}
+	}
+	_ = conn.WriteMessage(ws.OpBinary, append([]byte{1}, sb.String()...))
 	status(obj{"status": "Success"})
 }
