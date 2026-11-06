@@ -45,6 +45,18 @@ async function openAccess(ctx) {
 }
 
 // ------------------------------------------------------------------ HOME
+// per-namespace problems on a cluster card: critical and warning items, worst namespaces first
+function attnBlock(c) {
+  const a = c.attention;
+  if (!a || !a.namespaces) return `<div class="attn-ok">${stLabel('No namespace needs attention', 'good')}</div>`;
+  const head = a.critical ? stLabel(`${a.critical} critical`, 'critical') + (a.warning ? ' ' + stLabel(`${a.warning} warning${a.warning === 1 ? '' : 's'}`, 'warning') : '')
+    : stLabel(`${a.warning} warning${a.warning === 1 ? '' : 's'}`, 'warning');
+  return `<div class="attn-box"><div class="attn-head">${head}<span class="muted">in ${a.namespaces} namespace${a.namespaces === 1 ? '' : 's'}</span></div>
+    <ul class="attn-list">${a.top.map(n => `<li class="${n.sev}"><i class="sdot"></i><a href="${ctxPath(c.name)}/namespaces" title="${esc(n.top.join('\n'))}"><b>${esc(n.name)}</b></a>
+      <span class="muted">${n.critical ? n.critical + ' critical' : ''}${n.critical && n.warning ? ' · ' : ''}${n.warning ? n.warning + ' warning' + (n.warning === 1 ? '' : 's') : ''} — ${esc((n.top[0] || '').replace(/^\w+ /, ''))}</span></li>`).join('')}
+    ${a.namespaces > a.top.length ? `<li class="muted more">+ ${a.namespaces - a.top.length} more — open Namespaces</li>` : ''}</ul></div>`;
+}
+
 async function viewHome() {
   const kc = await api('kubeconfig');
   S.kc = kc;
@@ -66,7 +78,7 @@ async function viewHome() {
           <div><div class="card-head" style="margin-bottom:4px"><span class="cap">CPU</span><span class="right muted">${c.metricsAvailable ? (isNs(c) ? (c.cpu.quota ? 'vs quota' : 'vs requests') : '') : 'no metrics'}</span></div>${mcell(c.cpu.used, capOf(c.cpu) || c.cpu.req, capOf(c.cpu) ? c.cpu.req : null, fmtCPU, c.metricsAvailable)}</div>
           <div><div class="card-head" style="margin-bottom:4px"><span class="cap">Memory</span><span class="right muted">${c.metricsAvailable ? (isNs(c) ? (c.mem.quota ? 'vs quota' : 'vs requests') : '') : 'no metrics'}</span></div>${mcell(c.mem.used, capOf(c.mem) || c.mem.req, capOf(c.mem) ? c.mem.req : null, fmtMem, c.metricsAvailable)}</div>
         </div>
-        ${c.pods.problem ? `<div>${stLabel(c.pods.problem + (c.pods.problem > 1 ? ' pods need' : ' pod needs') + ' attention', 'critical')}</div>` : `<div>${stLabel('All pods healthy', 'good')}</div>`}`;
+        ${attnBlock(c)}`;
       return `<div class="card ccard" data-ctx="${esc(c.name)}">
         <div class="top"><i class="dot ${c.status}" style="margin-top:5px"></i><div style="min-width:0;flex:1"><div class="nm">${esc(shortName(c.name))}</div>${sub}</div>
         <div style="display:flex;gap:4px;flex-direction:column;align-items:flex-end">${c.version ? `<span class="tag">${esc(c.version)}</span>` : ''}${c.current ? '<span class="tag cur">current</span>' : ''}${isNs(c) ? '<span class="tag" title="Role/RoleBinding access">namespace-scoped</span>' : ''}</div></div>

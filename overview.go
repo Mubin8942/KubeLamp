@@ -45,7 +45,8 @@ func sevRank(s string) int {
 	return 0
 }
 
-func (s *Server) buildNSOverview(ctx context.Context, c *Cluster, snap *Snapshot) []NSOverview {
+// nsBase gathers pod, workload and event attention items from the snapshot (no API calls).
+func nsBase(snap *Snapshot) (map[string]*NSOverview, func(string) *NSOverview) {
 	byNS := map[string]*NSOverview{}
 	get := func(ns string) *NSOverview {
 		o := byNS[ns]
@@ -176,32 +177,11 @@ func (s *Server) buildNSOverview(ctx context.Context, c *Cluster, snap *Snapshot
 		get(k.ns).Items = append(get(k.ns).Items, AttnItem{"warning", "event", k.reason, d, ""})
 	}
 
-	// storage: PVC phase + cached usage (the browser asks /api/pvcusage to fill the gaps)
-	var nss []string
-	if snap.Scope == "namespaced" {
-		nss = snap.ScopeNamespaces
-	} else {
-		pvcs, err := list[PVC](ctx, c.client, "/api/v1/persistentvolumeclaims", nil)
-		if err == nil {
-			seen := map[string]bool{}
-			for i := range pvcs {
-				seen[pvcs[i].Metadata.Namespace] = true
-			}
-			for n := range seen {
-				nss = append(nss, n)
-			}
-			s.addPVCItems(c, get, pvcs)
-			nss = nil
-		}
-	}
-	for _, ns := range nss {
-		pvcs, err := s.listPVCs(ctx, c, ns)
-		if err != nil {
-			continue
-		}
-		s.addPVCItems(c, get, pvcs)
-	}
+	return byNS, get
+}
 
+// finalizeNS sorts items, sets each namespace's severity and orders namespaces worst-first.
+func finalizeNS(byNS map[string]*NSOverview) []NSOverview {
 	out := make([]NSOverview, 0, len(byNS))
 	for _, o := range byNS {
 		sort.SliceStable(o.Items, func(i, j int) bool {
@@ -228,6 +208,37 @@ func (s *Server) buildNSOverview(ctx context.Context, c *Cluster, snap *Snapshot
 		return out[i].Name < out[j].Name
 	})
 	return out
+}
+
+func (s *Server) buildNSOverview(ctx context.Context, c *Cluster, snap *Snapshot) []NSOverview {
+	byNS, get := nsBase(snap)
+	// storage: PVC phase + cached usage (the browser asks /api/pvcusage to fill the gaps)
+	var nss []string
+	if snap.Scope == "namespaced" {
+		nss = snap.ScopeNamespaces
+	} else {
+		pvcs, err := list[PVC](ctx, c.client, "/api/v1/persistentvolumeclaims", nil)
+		if err == nil {
+			seen := map[string]bool{}
+			for i := range pvcs {
+				seen[pvcs[i].Metadata.Namespace] = true
+			}
+			for n := range seen {
+				nss = append(nss, n)
+			}
+			s.addPVCItems(c, get, pvcs)
+			nss = nil
+		}
+	}
+	for _, ns := range nss {
+		pvcs, err := s.listPVCs(ctx, c, ns)
+		if err != nil {
+			continue
+		}
+		s.addPVCItems(c, get, pvcs)
+	}
+
+	return finalizeNS(byNS)
 }
 
 func (s *Server) addPVCItems(c *Cluster, get func(string) *NSOverview, pvcs []PVC) {
@@ -307,4 +318,64 @@ func (s *Server) overviewRoutes(mux *http.ServeMux) {
 		writeJSON(w, 200, map[string]any{"namespaces": s.buildNSOverview(ctx, c, snap), "exec": !s.readOnly,
 			"warnPct": pvcWarnPct, "critPct": pvcCritPct})
 	})
+}
+
+// ---------------------------------------------------------------- cluster-level digest
+
+type NSAttention struct {
+	Name     string   `json:"name"`
+	Sev      string   `json:"sev"`
+	Critical int      `json:"critical"`
+	Warning  int      `json:"warning"`
+	Top      []string `json:"top"` // the worst few items, short
+}
+
+type AttentionDigest struct {
+	Namespaces int           `json:"namespaces"` // namespaces with any issue
+	Critical   int           `json:"critical"`   // critical items in total
+	Warning    int           `json:"warning"`
+	Top        []NSAttention `json:"top"` // worst namespaces first (capped)
+}
+
+// attentionDigest summarises per-namespace problems for the All clusters page. It only uses the
+// snapshot and already-cached PVC readings, so it costs no API calls.
+func attentionDigest(c *Cluster, snap *Snapshot) AttentionDigest {
+	byNS, get := nsBase(snap)
+	c.pvcMu.Lock()
+	for _, u := range c.pvcCache {
+		if u.State != "ok" || u.Pct < pvcWarnPct || u.Phase != "Bound" && u.Phase != "" {
+			continue
+		}
+		sev := "warning"
+		if u.Pct >= pvcCritPct {
+			sev = "critical"
+		}
+		o := get(u.Namespace)
+		o.Items = append(o.Items, AttnItem{sev, "pvc", u.Name, fmtPct(u.Pct) + " full", ""})
+	}
+	c.pvcMu.Unlock()
+	var d AttentionDigest
+	for _, n := range finalizeNS(byNS) {
+		if n.Sev == "ok" {
+			continue
+		}
+		a := NSAttention{Name: n.Name, Sev: n.Sev}
+		for _, it := range n.Items {
+			if it.Sev == "critical" {
+				a.Critical++
+			} else {
+				a.Warning++
+			}
+			if len(a.Top) < 2 {
+				a.Top = append(a.Top, it.Kind+" "+it.Name+": "+it.Detail)
+			}
+		}
+		d.Namespaces++
+		d.Critical += a.Critical
+		d.Warning += a.Warning
+		if len(d.Top) < 5 {
+			d.Top = append(d.Top, a)
+		}
+	}
+	return d
 }

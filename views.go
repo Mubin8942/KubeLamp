@@ -16,31 +16,32 @@ type Res struct {
 }
 
 type ClusterSummary struct {
-	Name             string      `json:"name"`
-	Server           string      `json:"server"`
-	AuthType         string      `json:"authType"`
-	Current          bool        `json:"current"`
-	Namespace        string      `json:"namespace"`
-	Status           string      `json:"status"` // ok | partial | error | loading
-	Error            string      `json:"error,omitempty"`
-	Version          string      `json:"version,omitempty"`
-	At               time.Time   `json:"at"`
-	MetricsAvailable bool        `json:"metricsAvailable"`
-	MetricsErr       string      `json:"metricsErr,omitempty"`
-	NodesReady       int         `json:"nodesReady"`
-	NodesTotal       int         `json:"nodesTotal"`
-	Pods             PodCounts   `json:"pods"`
-	DeployHealthy    int         `json:"deployHealthy"`
-	DeployTotal      int         `json:"deployTotal"`
-	Namespaces       int         `json:"namespaces"`
-	CPU              Res         `json:"cpu"`
-	Mem              Res         `json:"mem"`
-	Warnings1h       int         `json:"warnings1h"`
-	Spark            HistoryView `json:"spark"`
-	Scope            string      `json:"scope"`           // cluster | namespaced
-	ScopeNamespaces  []string    `json:"scopeNamespaces"` // when namespaced
-	AccessMode       string      `json:"accessMode"`      // configured: auto | cluster | namespaced
-	AccessNamespaces []string    `json:"accessNamespaces"`
+	Attention        *AttentionDigest `json:"attention,omitempty"`
+	Name             string           `json:"name"`
+	Server           string           `json:"server"`
+	AuthType         string           `json:"authType"`
+	Current          bool             `json:"current"`
+	Namespace        string           `json:"namespace"`
+	Status           string           `json:"status"` // ok | partial | error | loading
+	Error            string           `json:"error,omitempty"`
+	Version          string           `json:"version,omitempty"`
+	At               time.Time        `json:"at"`
+	MetricsAvailable bool             `json:"metricsAvailable"`
+	MetricsErr       string           `json:"metricsErr,omitempty"`
+	NodesReady       int              `json:"nodesReady"`
+	NodesTotal       int              `json:"nodesTotal"`
+	Pods             PodCounts        `json:"pods"`
+	DeployHealthy    int              `json:"deployHealthy"`
+	DeployTotal      int              `json:"deployTotal"`
+	Namespaces       int              `json:"namespaces"`
+	CPU              Res              `json:"cpu"`
+	Mem              Res              `json:"mem"`
+	Warnings1h       int              `json:"warnings1h"`
+	Spark            HistoryView      `json:"spark"`
+	Scope            string           `json:"scope"`           // cluster | namespaced
+	ScopeNamespaces  []string         `json:"scopeNamespaces"` // when namespaced
+	AccessMode       string           `json:"accessMode"`      // configured: auto | cluster | namespaced
+	AccessNamespaces []string         `json:"accessNamespaces"`
 }
 
 type PodCounts struct {
@@ -175,6 +176,8 @@ func summarize(c *Cluster) ClusterSummary {
 		}
 	}
 	sum.Spark = c.Spark("cluster", 60)
+	att := attentionDigest(c, s)
+	sum.Attention = &att
 	return sum
 }
 

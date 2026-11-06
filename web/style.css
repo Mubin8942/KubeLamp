@@ -366,3 +366,16 @@ ul.attn li.critical .ai { color: var(--critical); }
 td .mcell { min-width: 150px; }
 .sdot { width: 8px; height: 8px; border-radius: 50%; background: var(--warning); display: inline-block; }
 ul.attn li.critical .sdot { background: var(--critical); }
+
+/* 1.2: namespace attention on the All clusters cards */
+.attn-box { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.attn-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
+.attn-ok { margin-top: 12px; }
+ul.attn-list { list-style: none; margin: 4px 0 0; padding: 0; font-size: 12.5px; }
+ul.attn-list li { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; min-width: 0; }
+ul.attn-list li .sdot { flex: none; align-self: center; }
+ul.attn-list li.critical .sdot { background: var(--critical); }
+ul.attn-list li a { color: var(--ink); text-decoration: none; flex: none; }
+ul.attn-list li a:hover { color: var(--accent-ink); }
+ul.attn-list li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+ul.attn-list li.more { padding-left: 16px; }
