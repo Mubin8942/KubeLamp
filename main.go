@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-const version = "1.3.1"
+const version = "1.3.2"
 
 func main() {
 	kubeconfig := flag.String("kubeconfig", "", "path(s) to kubeconfig files (default: $KUBECONFIG or ~/.kube/config); separate several with "+string(os.PathListSeparator))
@@ -26,6 +26,9 @@ func main() {
 	noBrowser := flag.Bool("no-browser", false, "don't open the browser on start")
 	readOnly := flag.Bool("read-only", false, "disable every write: edit, delete, scale, restart, exec and the shell")
 	allowShell := flag.Bool("allow-shell", false, "allow the local shell even when listening beyond localhost (dangerous)")
+	maxDown := flag.Int("max-download", 256, "largest file or folder (MiB) the file transfer tool may download from a pod (max 2048)")
+	maxUp := flag.Int("max-upload", 100, "largest file (MiB) the file transfer tool may upload into a pod")
+	xferRate := flag.Int("transfer-rate", 20, "file transfer speed limit in MiB/s per transfer, so large copies don't load the API server or the node")
 	interval := flag.Duration("interval", 15*time.Second, "refresh interval for clusters you are viewing (min 5s); history keeps 1 hour")
 	// macOS passes -psn_… to apps started from Finder on older versions; ignore it
 	var args []string
@@ -88,7 +91,8 @@ func main() {
 	reg := &Registry{}
 	reg.Load(paths, st.Access)
 
-	srv := &Server{reg: reg, dataDir: dataDir, token: *token, localOnly: local, readOnly: *readOnly, allowShell: *allowShell}
+	srv := &Server{reg: reg, dataDir: dataDir, token: *token, localOnly: local, readOnly: *readOnly, allowShell: *allowShell,
+		ftMaxDown: int64(*maxDown) << 20, ftMaxUp: int64(*maxUp) << 20, ftRate: int64(*xferRate) << 20}
 	srv.quit = func() {
 		log.Println("quit requested from the UI")
 		time.Sleep(200 * time.Millisecond)

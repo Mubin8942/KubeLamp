@@ -118,6 +118,7 @@ func newCluster(name string, nodes int, seed int64, big bool) *cluster {
 		{"ott-streaming", "binge-web", 4, []string{"nginx"}, 40, 90, [2]float64{50, 128}, "nginx:1.27-alpine"},
 		{"ecrm", "ecrm-backend", 2, []string{"app"}, 180, 900, [2]float64{250, 1024}, "registry.example.local/ecrm/backend:4.4.0"},
 		{"ecrm", "ecrm-frontend", 2, []string{"web"}, 25, 80, [2]float64{50, 128}, "registry.example.local/ecrm/frontend:4.4.0"},
+		{"ecrm", "ncdu", 1, []string{"ncdu"}, 5, 20, [2]float64{10, 32}, "busybox:1.36"},
 		{"monitoring", "grafana", 1, []string{"grafana"}, 60, 210, [2]float64{100, 256}, "grafana/grafana:11.3.0"},
 		{"monitoring", "kube-state-metrics", 1, []string{"kube-state-metrics"}, 20, 70, [2]float64{50, 128}, "registry.k8s.io/kube-state-metrics:v2.13.0"},
 		{"kube-system", "coredns", 2, []string{"coredns"}, 8, 30, [2]float64{100, 70}, "registry.k8s.io/coredns/coredns:v1.11.3"},
@@ -126,7 +127,7 @@ func newCluster(name string, nodes int, seed int64, big bool) *cluster {
 		{"default", "notifier", 1, []string{"notifier"}, 10, 60, [2]float64{50, 64}, "registry.example.local/tools/notifier:0.3.1"},
 	}
 	if !big {
-		specs = specs[:9]
+		specs = specs[:10]
 	}
 	for _, s := range specs {
 		labels := map[string]string{"app.kubernetes.io/name": s.name, "app.kubernetes.io/part-of": s.ns}
@@ -642,6 +643,7 @@ func main() {
 	dir := flag.String("dir", "/tmp/kubelamp-mock", "where to write the kubeconfig")
 	flag.Parse()
 	os.MkdirAll(*dir, 0o755)
+	mockRoot = *dir
 	ca, caKey, caPEM := mkCA()
 	srvCert, srvKey := mkLeaf(ca, caKey, "kube-apiserver", true)
 	cliCert, cliKey := mkLeaf(ca, caKey, "admin", false)
@@ -773,6 +775,7 @@ var pvcMounts = map[string][]pvcMount{
 	"payments-api":  {{"api-data", "/data", []string{"envoy", "api"}}},
 	"ledger-worker": {{"ledger-data", "/var/ledger", []string{"worker"}}, {"ledger-cache", "/var/cache", []string{"worker"}}},
 	"ecrm-backend":  {{"ecrm-uploads", "/uploads", []string{"app"}}},
+	"ncdu":          {{"ecrm-uploads", "/data", []string{"ncdu"}}}, // maintenance pod mounting the same volume
 }
 
 // pvc → (size KiB, used KiB) reported by the fake df

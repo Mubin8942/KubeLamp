@@ -9,6 +9,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -742,6 +745,10 @@ func (c *cluster) serveConnExec(w http.ResponseWriter, r *http.Request, ns, pod 
 }
 
 func (c *cluster) serveExec(w http.ResponseWriter, r *http.Request, ns, pod string) {
+	if cmd := r.URL.Query()["command"]; len(cmd) >= 4 && cmd[0] == "sh" && cmd[1] == "-c" && strings.Contains(cmd[2], "# kl-ft") {
+		c.serveFtExec(w, r, ns, pod, cmd)
+		return
+	}
 	if cmd := r.URL.Query()["command"]; len(cmd) >= 7 && cmd[0] == "sh" && cmd[1] == "-c" && strings.Contains(cmd[2], "@@r|") {
 		c.serveConnExec(w, r, ns, pod, cmd)
 		return
@@ -811,3 +818,130 @@ func (c *cluster) serveExec(w http.ResponseWriter, r *http.Request, ns, pod stri
 }
 
 var _ = io.EOF
+
+// ---- file transfer tool: the pod-side scripts really run (with sh on this machine) against a
+// directory tree that stands in for the container filesystem. Paths under a PVC mount map to a
+// directory shared by every pod mounting that claim; everything else is private to the pod.
+
+var mockRoot string
+
+func seedPVC(dir, claim string) {
+	marker := filepath.Join(dir, ".seeded")
+	if _, err := os.Stat(marker); err == nil {
+		return
+	}
+	_ = os.MkdirAll(dir, 0o755)
+	if claim == "ecrm-uploads" {
+		w := func(rel, s string) {
+			p := filepath.Join(dir, rel)
+			_ = os.MkdirAll(filepath.Dir(p), 0o755)
+			_ = os.WriteFile(p, []byte(s), 0o644)
+		}
+		w("notes.txt", "hello from the mock volume\n")
+		w("reports/2026-q3.csv", "id,amount\n1,10\n2,20\n")
+		w("images/logo.svg", "<svg xmlns='http://www.w3.org/2000/svg'/>")
+		w("odd name & spaces/file with 'quote'.txt", "tricky names\n")
+		_ = os.MkdirAll(filepath.Join(dir, "empty"), 0o755)
+		log := strings.Repeat("[2026-11-07 03:00:00] production.INFO: request handled {\"ms\":12}\n", 40000) // ~2.7 MB
+		w("storage/logs/laravel.log", log+"LAST-LINE-MARKER\n")
+		_ = os.Symlink("reports", filepath.Join(dir, "latest"))
+	}
+	_ = os.WriteFile(marker, nil, 0o644)
+}
+
+func (c *cluster) ftMapPath(deploy, ns, pod, arg string) string {
+	if !strings.HasPrefix(arg, "/") {
+		return arg
+	}
+	for _, pm := range pvcMounts[deploy] {
+		if arg == pm.path || strings.HasPrefix(arg, pm.path+"/") {
+			d := filepath.Join(mockRoot, "pvc", pm.claim)
+			seedPVC(d, pm.claim)
+			return filepath.Join(d, strings.TrimPrefix(arg, pm.path))
+		}
+	}
+	d := filepath.Join(mockRoot, "pods", ns, pod)
+	_ = os.MkdirAll(filepath.Join(d, "tmp"), 0o755)
+	return filepath.Join(d, arg)
+}
+
+func (c *cluster) serveFtExec(w http.ResponseWriter, r *http.Request, ns, pod string, cmd []string) {
+	conn, _, err := ws.Accept(w, r, "v5.channel.k8s.io", "v4.channel.k8s.io", "channel.k8s.io")
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+	status := func(m obj) {
+		b, _ := json.Marshal(m)
+		_ = conn.WriteMessage(ws.OpBinary, append([]byte{3}, b...))
+	}
+	if r.URL.Query().Get("container") == "envoy" {
+		status(obj{"status": "Failure", "message": "OCI runtime exec failed: exec: \"sh\": executable file not found in $PATH"})
+		return
+	}
+	var deploy string
+	c.mu.Lock()
+	for _, p := range c.pods {
+		if p.ns == ns && p.name == pod {
+			deploy = p.deploy
+		}
+	}
+	c.mu.Unlock()
+	args := append([]string(nil), cmd[1:]...)
+	for i := 3; i < len(args); i++ {
+		args[i] = c.ftMapPath(deploy, ns, pod, args[i])
+	}
+	sh := exec.Command(cmd[0], args...)
+	stdin, _ := sh.StdinPipe()
+	stdout, _ := sh.StdoutPipe()
+	var errb strings.Builder
+	sh.Stderr = &errb
+	hasStdin := r.URL.Query().Get("stdin") == "true"
+	if err := sh.Start(); err != nil {
+		status(obj{"status": "Failure", "message": err.Error()})
+		return
+	}
+	go func() {
+		defer stdin.Close()
+		if !hasStdin {
+			return
+		}
+		for {
+			op, msg, err := conn.ReadMessage()
+			if err != nil || op == ws.OpClose {
+				return
+			}
+			if len(msg) >= 1 && msg[0] == 0 {
+				if _, err := stdin.Write(msg[1:]); err != nil {
+					return
+				}
+			}
+			if len(msg) >= 1 && msg[0] == 255 {
+				return
+			}
+		}
+	}()
+	buf := make([]byte, 32<<10)
+	for {
+		n, err := stdout.Read(buf)
+		if n > 0 {
+			if conn.WriteMessage(ws.OpBinary, append([]byte{1}, buf[:n]...)) != nil {
+				_ = sh.Process.Kill()
+				break
+			}
+		}
+		if err != nil {
+			break
+		}
+	}
+	werr := sh.Wait()
+	if errb.Len() > 0 {
+		_ = conn.WriteMessage(ws.OpBinary, append([]byte{2}, errb.String()...))
+	}
+	if ee, ok := werr.(*exec.ExitError); ok {
+		status(obj{"status": "Failure", "reason": "NonZeroExitCode", "message": "command terminated with non-zero exit code",
+			"details": obj{"causes": []obj{{"reason": "ExitCode", "message": strconv.Itoa(ee.ExitCode())}}}})
+		return
+	}
+	status(obj{"status": "Success"})
+}

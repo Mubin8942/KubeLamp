@@ -438,3 +438,28 @@ table.kv td { padding: 4px 0; vertical-align: top; overflow-wrap: anywhere; }
 .spin { display: inline-block; width: 9px; height: 9px; border: 2px solid var(--line-2); border-top-color: var(--accent); border-radius: 50%; animation: ctspin .8s linear infinite; }
 @keyframes ctspin { to { transform: rotate(360deg); } }
 @media (max-width: 800px) { .ct-tools { justify-content: flex-start; } }
+
+/* ---- Tools: Pod File Transfer */
+.ft-limits { font-size: 12.5px; }
+.ft-card, .ft-up { margin-bottom: 14px; }
+.ft-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ft-bar input[type=text] { flex: 1; min-width: 240px; font-size: 13px; }
+.ft-meta { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.ft-mounts { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.ft-chip { cursor: pointer; } .ft-chip:hover { border-color: var(--accent); }
+.ft-vol { font-size: 12px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line-2); color: var(--ink-2); white-space: nowrap; }
+.ft-vol.good { color: var(--good); border-color: var(--good); } .ft-vol.warn { color: var(--warning); border-color: var(--warning); }
+.ft-table td.num, .ft-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ft-ic { width: 28px; text-align: center; }
+.ft-name { overflow-wrap: anywhere; font-family: var(--mono); font-size: 13px; }
+a.ft-name { color: var(--accent); text-decoration: none; } a.ft-name:hover { text-decoration: underline; }
+.ft-act { text-align: right; white-space: nowrap; }
+.btn.sm { height: 26px; padding: 0 9px; font-size: 12.5px; }
+.ft-uphead { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.ft-via { display: inline-flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--ink-2); }
+.ft-via[hidden] { display: none; }
+.ft-drop { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 14px; border: 1px dashed var(--line-2); border-radius: 10px; }
+.ft-q { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.ft-qrow { display: grid; grid-template-columns: minmax(120px, 1.2fr) 70px minmax(80px, 1fr) minmax(90px, 2fr) auto; gap: 10px; align-items: center; font-size: 13px; }
+.ft-qrow .ct-bar { margin: 0; } .ft-qn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ft-qrow.ok .ft-qs { color: var(--good); } .ft-qrow.err .ft-qs { color: var(--critical); } .ft-qs { overflow-wrap: anywhere; }

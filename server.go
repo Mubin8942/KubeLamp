@@ -28,6 +28,9 @@ type Server struct {
 	token      string // optional shared token when exposed beyond localhost
 	localOnly  bool
 	readOnly   bool
+	ftMaxDown  int64 // file transfer limits in bytes (0 = default)
+	ftMaxUp    int64
+	ftRate     int64 // bytes per second per transfer
 	allowShell bool
 	quit       func()
 }
@@ -445,6 +448,7 @@ func (s *Server) routes() http.Handler {
 	s.pvcRoutes(mux)
 	s.overviewRoutes(mux)
 	s.connRoutes(mux)
+	s.ftRoutes(mux)
 
 	mux.HandleFunc("GET /api/info", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"version": version, "readOnly": s.readOnly, "shell": s.shellAllowed(), "os": runtime.GOOS})

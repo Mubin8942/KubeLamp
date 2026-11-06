@@ -49,6 +49,23 @@ type Volume struct {
 	PVC  *struct {
 		ClaimName string `json:"claimName"`
 	} `json:"persistentVolumeClaim,omitempty"`
+	// kinds below are only used to label mounts in the file transfer tool
+	EmptyDir *struct {
+		Medium string `json:"medium,omitempty"`
+	} `json:"emptyDir,omitempty"`
+	ConfigMap   *struct{} `json:"configMap,omitempty"`
+	Secret      *struct{} `json:"secret,omitempty"`
+	Projected   *struct{} `json:"projected,omitempty"`
+	DownwardAPI *struct{} `json:"downwardAPI,omitempty"`
+	Ephemeral   *struct{} `json:"ephemeral,omitempty"`
+	CephFS      *struct{} `json:"cephfs,omitempty"`
+	HostPath    *struct {
+		Path string `json:"path"`
+	} `json:"hostPath,omitempty"`
+	NFS *struct {
+		Server string `json:"server"`
+		Path   string `json:"path"`
+	} `json:"nfs,omitempty"`
 }
 
 type Container struct {

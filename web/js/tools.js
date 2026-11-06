@@ -2,7 +2,8 @@
 /* Tools menu (top bar) and the tools it opens. Add a tool by appending to TOOLS. */
 
 const TOOLS = [
-  { id: 'conntest', name: 'Pod connectivity tester', desc: 'Test TCP/HTTP reach from pods to IPs, ports and domains, and check network policies.', needsExec: true, view: viewConnTest },
+  { id: 'conntest', name: 'Pod Connectivity Inspector', desc: 'Test TCP/HTTP reach from pods to IPs, ports and domains, and check network policies.', needsExec: true, view: viewConnTest },
+  { id: 'files', name: 'Pod File Transfer', desc: 'Browse a container\'s files, download logs and assets, upload files into mounted volumes.', needsExec: true, view: viewFileTransfer },
 ];
 
 const toolsHref = (ctx, id) => `${ctxPath(ctx)}/tools/${id}`;
@@ -28,7 +29,7 @@ async function viewTools(route) {
     <div class="tools-grid">${TOOLS.map(x => `<a class="card tool-card" href="${toolsHref(route.ctx, x.id)}"><h3>${esc(x.name)}</h3><div class="cap">${esc(x.desc)}</div></a>`).join('')}</div>`;
 }
 
-// ------------------------------------------------------------------ connectivity tester
+// ------------------------------------------------------------------ connectivity inspector
 const CT_STATES = {
   open: { label: 'Open', cls: 'good', sym: '✓', tip: 'Connected: the path is allowed.' },
   refused: { label: 'Refused', cls: 'warn', sym: '↩', tip: 'The host answered with a reset: the network and firewall allow it, but nothing listens on that port.' },
@@ -61,7 +62,7 @@ async function viewConnTest(route) {
 
   main.innerHTML = `
     <div class="page-head"><div><div class="crumbs"><a href="${ctxPath(ctx)}/overview">${esc(shortName(ctx))}</a> / <a href="${ctxPath(ctx)}/tools">Tools</a></div>
-      <h1>Pod connectivity tester</h1>
+      <h1>Pod Connectivity Inspector</h1>
       <div class="sub"><span>Runs nc, curl or wget inside your pods to show whether the worker's firewall lets traffic through to a destination.</span></div></div></div>
     ${roOnly ? `<div class="banner err"><b>Read-only mode.</b><span>This tool runs commands inside pods, so it is disabled.</span></div>` : ''}
     <div class="card ct-form">
