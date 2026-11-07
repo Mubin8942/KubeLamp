@@ -6,6 +6,7 @@ const Term = (() => {
   const drawer = $('#term'), body = $('#termBody'), tabsEl = $('#termTabs');
   const tabs = [];
   let active = null, seq = 0;
+  let hlOn = (() => { try { return localStorage.getItem('kd.term.hl') !== '0'; } catch { return true; } })();
   const theme = {
     background: '#0b1016', foreground: '#e6edf3', cursor: '#8fb3ff', cursorAccent: '#0b1016',
     selectionBackground: 'rgba(143,179,255,.28)',
@@ -74,7 +75,7 @@ const Term = (() => {
     const fit = new FitAddon.FitAddon();
     term.loadAddon(fit);
     term.open(pane);
-    const t = { id: ++seq, title, tip, kind, path, term, fit, pane, ws: null, dead: false };
+    const t = { id: ++seq, title, tip, kind, path, term, fit, pane, ws: null, dead: false, hl: TermHL.create(), dec: new TextDecoder(), hlTimer: 0 };
     tabs.push(t);
     connect(t);
     term.onData(d => { if (t.ws && t.ws.readyState === 1) t.ws.send(JSON.stringify({ t: 'i', d })); else if (t.dead && d === '\r') { t.dead = false; renderTabs(); connect(t); } });
@@ -87,13 +88,18 @@ const Term = (() => {
     const ws = new WebSocket(wsURL(t.path));
     ws.binaryType = 'arraybuffer';
     t.ws = ws;
+    t.hl.reset(); t.dec = new TextDecoder();
     ws.onopen = () => { fitActive(); sendSize(t); };
     ws.onmessage = ev => {
       if (typeof ev.data === 'string') {
         try { const m = JSON.parse(ev.data); if (m.t === 'exit') { t.dead = true; t.term.write(`\r\n\x1b[2m[${m.msg || 'session ended'} — press Enter to reconnect]\x1b[0m\r\n`); renderTabs(); } } catch {}
         return;
       }
-      t.term.write(new Uint8Array(ev.data));
+      if (!hlOn) { t.term.write(new Uint8Array(ev.data)); return; }
+      clearTimeout(t.hlTimer);
+      t.term.write(t.hl.write(t.dec.decode(ev.data, { stream: true })));
+      // a word cut at the end of a chunk is held for the next one; show it soon if nothing follows
+      if (t.hl.hasPending()) t.hlTimer = setTimeout(() => t.term.write(t.hl.flush()), 15);
     };
     ws.onclose = () => {
       if (!t.dead) { t.dead = true; t.term.write('\r\n\x1b[2m[disconnected — press Enter to reconnect]\x1b[0m\r\n'); renderTabs(); }
@@ -131,6 +137,19 @@ const Term = (() => {
   $('#termToggle').addEventListener('click', toggle);
   $('#termHide').addEventListener('click', () => show(false));
   $('#termNew').addEventListener('click', () => newShell());
+  const hlBtn = $('#termHL');
+  const drawHL = () => {
+    hlBtn.classList.toggle('on', hlOn);
+    hlBtn.title = `Highlighting ${hlOn ? 'on' : 'off'}: colours IPs, URLs, MAC addresses, timestamps and words like error, warning, success in the output. Click to turn ${hlOn ? 'off' : 'on'}.`;
+  };
+  hlBtn.addEventListener('click', () => {
+    hlOn = !hlOn;
+    try { localStorage.setItem('kd.term.hl', hlOn ? '1' : '0'); } catch {}
+    tabs.forEach(t => { clearTimeout(t.hlTimer); if (t.hl.hasPending()) t.term.write(t.hl.flush()); t.hl.reset(); t.dec = new TextDecoder(); });
+    drawHL();
+    toast(`Terminal highlighting ${hlOn ? 'on' : 'off'} (applies to new output)`);
+  });
+  drawHL();
   document.addEventListener('keydown', e => { if (e.ctrlKey && (e.key === '`' || e.code === 'Backquote')) { e.preventDefault(); toggle(); } });
   renderTabs();
   return { show, toggle, newShell, openExec };

@@ -326,6 +326,7 @@ dialog::backdrop { background: rgba(5,9,14,.55); }
 .term-tab .x svg { width: 12px; height: 12px; stroke: currentColor; stroke-width: 2.2; fill: none; }
 .term-icon { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 7px; background: none; color: #8d9bad; cursor: pointer; }
 .term-icon:hover { color: #e6edf3; background: rgba(255,255,255,.06); }
+.term-icon.on { color: #e5b84a; }
 .term-icon svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .term-body { flex: 1; min-height: 0; position: relative; }
 .term-pane { position: absolute; inset: 6px 4px 4px 12px; }

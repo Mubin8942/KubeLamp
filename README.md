@@ -89,6 +89,8 @@ Lists show the same columns as `kubectl get`, including CRD printer columns. A *
 - **Read:** the start or the end of a file (16 KiB to 512 KiB at a time) with find, "only matching lines", wrap and line numbers; copy the shown text. Binary files get a hex preview. Only regular files are read (never devices or pipes), and permission errors are shown as they are. Files that report size 0 but have content (`/proc`) work too.
 - **Whole files:** *Download…* opens the same folder in File Transfer, which has the size limits and streaming download.
 
+**Terminal highlighting (like MobaXterm):** the terminal colours IP addresses (IPv4 with port or CIDR, IPv6), URLs, MAC addresses and timestamps, and words such as `error`, `failed`, `refused`, `CrashLoopBackOff` (red), `warning`, `Pending`, `retrying` (yellow), `ok`, `success`, `Running`, `Ready` (green), `INFO` (cyan) and `DEBUG` (grey), plus the level letter of Kubernetes `E/W/I` log lines. Output the program already coloured is left alone, and full-screen programs (vim, less, top, k9s) are not touched. Toggle it with the highlighter button in the terminal bar.
+
 **Logs for a whole Deployment:**
 - **Merged stream:** every pod matched by the Deployment's label selector, live, colour-coded per pod.
 - **Rollouts:** new pods are picked up automatically.

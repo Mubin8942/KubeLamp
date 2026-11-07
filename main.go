@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-const version = "1.3.3"
+const version = "1.3.4"
 
 func main() {
 	kubeconfig := flag.String("kubeconfig", "", "path(s) to kubeconfig files (default: $KUBECONFIG or ~/.kube/config); separate several with "+string(os.PathListSeparator))
