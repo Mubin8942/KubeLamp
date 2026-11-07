@@ -495,7 +495,7 @@ func ftAlternatives(pods []Pod, pod, container, p string) (*FtMount, []FtAlt) {
 
 func (s *Server) denyExecTool(w http.ResponseWriter) bool {
 	if s.readOnly {
-		writeErr(w, 403, errors.New("KubeLamp is running in read-only mode (-read-only): file transfer runs commands in pods, so it is disabled"))
+		writeErr(w, 403, errors.New("KubeLamp is running in read-only mode (-read-only): this tool runs commands in pods, so it is disabled"))
 		return true
 	}
 	return false

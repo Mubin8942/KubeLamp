@@ -3,8 +3,6 @@
 package main
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -17,7 +15,7 @@ import (
 	"time"
 )
 
-const version = "1.3.5"
+const version = "1.4.0"
 
 func main() {
 	kubeconfig := flag.String("kubeconfig", "", "path(s) to kubeconfig files (default: $KUBECONFIG or ~/.kube/config); separate several with "+string(os.PathListSeparator))
@@ -29,6 +27,11 @@ func main() {
 	maxDown := flag.Int("max-download", 256, "largest file or folder (MiB) the file transfer tool may download from a pod (max 2048)")
 	maxUp := flag.Int("max-upload", 100, "largest file (MiB) the file transfer tool may upload into a pod")
 	xferRate := flag.Int("transfer-rate", 20, "file transfer speed limit in MiB/s per transfer, so large copies don't load the API server or the node")
+	dataFlag := flag.String("data", "", "folder for settings and the saved access token (default: your user config folder; /data in the Docker image)")
+	tokenFile := flag.String("token-file", "", "read the access token from this file, e.g. a mounted Kubernetes Secret")
+	inCluster := flag.String("in-cluster", "auto", "connect to the Kubernetes cluster KubeLamp runs in, with its service account: auto, true or false")
+	clusterName := flag.String("cluster-name", "in-cluster", "name shown for the in-cluster connection")
+	healthcheck := flag.Bool("healthcheck", false, "check that the KubeLamp listening on -addr answers /healthz, then exit (for Docker HEALTHCHECK)")
 	interval := flag.Duration("interval", 15*time.Second, "refresh interval for clusters you are viewing (min 5s); history keeps 1 hour")
 	// macOS passes -psn_… to apps started from Finder on older versions; ignore it
 	var args []string
@@ -37,16 +40,26 @@ func main() {
 			args = append(args, a)
 		}
 	}
+	// every flag can also come from a KUBELAMP_* environment variable (Docker, Kubernetes)
+	if err := applyEnv(flag.CommandLine, os.Getenv); err != nil {
+		log.Fatalf("environment: %v", err)
+	}
 	_ = flag.CommandLine.Parse(args)
+	if *healthcheck {
+		os.Exit(runHealthcheck(*addr))
+	}
 	if *interval < 5*time.Second {
 		*interval = 5 * time.Second
 	}
 	activeInterval = *interval
 	historyPoints = int(time.Hour / *interval)
 
-	cfgDir, _ := os.UserConfigDir()
-	dataDir := filepath.Join(cfgDir, "KubeLamp")
-	migrateLegacyData(filepath.Join(cfgDir, "KubeDeck"), dataDir)
+	dataDir := *dataFlag
+	if dataDir == "" {
+		cfgDir, _ := os.UserConfigDir()
+		dataDir = filepath.Join(cfgDir, "KubeLamp")
+		migrateLegacyData(filepath.Join(cfgDir, "KubeDeck"), dataDir)
+	}
 
 	st := loadSettings(dataDir)
 	paths := splitPaths(*kubeconfig)
@@ -63,10 +76,27 @@ func main() {
 		log.Fatalf("bad -addr: %v", err)
 	}
 	local := host == "127.0.0.1" || host == "localhost" || host == "::1"
-	if !local && *token == "" {
-		b := make([]byte, 16)
-		_, _ = rand.Read(b)
-		*token = hex.EncodeToString(b)
+	tokenSource := ""
+	if !local || *token != "" || *tokenFile != "" {
+		t, src, err := resolveToken(*token, *tokenFile, dataDir)
+		if err != nil {
+			log.Fatal(err)
+		}
+		*token, tokenSource = t, src
+	}
+
+	// in-cluster: use the pod's service account (Deployment of KubeLamp inside the cluster)
+	var ic *resolvedContext
+	if *inCluster != "false" {
+		var err error
+		if ic, err = inClusterContext(*clusterName); err != nil {
+			if *inCluster == "true" {
+				log.Fatalf("in-cluster: %v", err)
+			}
+			ic = nil
+		} else if *kubeconfig == "" && len(st.Kubeconfig) == 0 {
+			paths = existingPaths(paths) // the image's default /kube/config is usually not mounted then
+		}
 	}
 
 	// Already running? Same version: just open it (double-clicking twice is common).
@@ -88,7 +118,7 @@ func main() {
 	}
 	fixPath()
 
-	reg := &Registry{}
+	reg := &Registry{inCluster: ic}
 	reg.Load(paths, st.Access)
 
 	srv := &Server{reg: reg, dataDir: dataDir, token: *token, localOnly: local, readOnly: *readOnly, allowShell: *allowShell,
@@ -105,15 +135,27 @@ func main() {
 	shown := strings.Replace(ln.Addr().String(), "0.0.0.0", "localhost", 1)
 	shown = strings.Replace(shown, "[::]", "localhost", 1)
 	u := "http://" + shown + "/"
+	shownURL := u
 	if *token != "" {
 		u += "?token=" + *token
+		shownURL = u
+		if tokenSource == "flag" || tokenSource == "file" {
+			shownURL += " (token from " + map[string]string{"flag": "-token / KUBELAMP_TOKEN", "file": "the token file"}[tokenSource] + ", not printed)"
+			shownURL = strings.Replace(shownURL, "?token="+*token, "?token=…", 1)
+		} else if tokenSource == "new-saved" || tokenSource == "saved" {
+			shownURL += "\n              (token saved in " + filepath.Join(dataDir, "token") + ")"
+		}
 	}
 	mode := "read-write"
 	if *readOnly {
 		mode = "read-only"
 	}
-	fmt.Printf("KubeLamp %s\n  kubeconfig: %s\n  open:       %s\n  (%s; press Ctrl+C to stop)\n",
-		version, strings.Join(paths, string(os.PathListSeparator)), u, mode)
+	src := strings.Join(paths, string(os.PathListSeparator))
+	if ic != nil {
+		src = strings.TrimPrefix(src+", in-cluster ("+ic.Server+")", ", ")
+	}
+	fmt.Printf("KubeLamp %s\n  clusters:   %s\n  open:       %s\n  (%s; press Ctrl+C to stop)\n",
+		version, src, shownURL, mode)
 	if !*noBrowser {
 		go func() { time.Sleep(300 * time.Millisecond); _ = openBrowser(u) }()
 	}

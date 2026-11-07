@@ -143,11 +143,57 @@ To build the DMG yourself, run `python3 packaging/macos/build_dmg.py --version 1
 |---|---|---|
 | `-kubeconfig` | `$KUBECONFIG` or `~/.kube/config` | one or more files (separate with `:` on Linux/macOS, `;` on Windows) |
 | `-addr` | `127.0.0.1:7080` | listen address. On anything other than localhost, an access token is required and printed at start |
-| `-token` | auto | set your own token when sharing with `-addr 0.0.0.0:7080` |
+| `-token` | auto | set your own token when sharing with `-addr 0.0.0.0:7080`. Otherwise a token is generated once and kept in the data folder, so the URL stays the same after restarts |
+| `-token-file` | | read the token from a file (Docker/Kubernetes secret); it is not printed |
+| `-data` | user config folder | where settings and the saved token live (`/data` in Docker) |
+| `-in-cluster` | `auto` | when running in a Kubernetes pod, connect to that cluster with the pod's service account (`true` / `false` to force) |
+| `-cluster-name` | `in-cluster` | name shown for the in-cluster connection |
+| `-max-download` / `-max-upload` / `-transfer-rate` | 256 / 100 MiB, 20 MiB/s | File Transfer limits |
 | `-interval` | `15s` | refresh interval for clusters you're viewing (minimum 5s). Others refresh every 60s |
 | `-no-browser` | | don't open a browser |
 | `-read-only` | off | disable every write: edit, delete, scale, restart, cordon, exec and the shell |
 | `-allow-shell` | off | allow the local shell even when listening beyond localhost (only on trusted networks) |
+
+Every flag can also be set with an environment variable: `KUBELAMP_` plus the flag name in capitals with `_` for `-`, e.g. `KUBELAMP_READ_ONLY=true`, `KUBELAMP_MAX_DOWNLOAD=512`. Command-line flags win.
+
+### Docker
+
+Images for amd64 and arm64 on GitHub Container Registry and Docker Hub:
+
+| Tag | Base | Use it for |
+|---|---|---|
+| `kubelamp:<version>`, `:latest` | distroless, ~15 MB, non-root, no shell | kubeconfigs with certificates or tokens, and in-cluster use |
+| `kubelamp:<version>-tools`, `:latest-tools` | Alpine with `kubectl`, the AWS CLI, `bash`, `curl` | EKS kubeconfigs that run `aws eks get-token`, or the local shell |
+
+```sh
+docker run -d --name kubelamp -p 7080:7080 \
+  --user "$(id -u):$(id -g)" \
+  -v ~/.kube:/kube:ro -v kubelamp-data:/data \
+  ghcr.io/zanayeem/kubelamp:latest
+docker logs kubelamp        # the URL with the access token
+```
+
+- **`--user $(id -u):$(id -g)`** lets the container read your kubeconfig, which is normally readable only by you (mode 600). Without it you will see `permission denied` for `/kube/config` in the logs.
+- **Mount the whole `~/.kube` folder**, so certificate files the kubeconfig points to (`certificate-authority: ca.crt`) are found. Absolute paths to files elsewhere (`/home/you/certs/ca.crt`) must exist inside the container too; kubeconfigs with embedded `*-data` fields just work.
+- **EKS:** use the `-tools` image and mount your AWS credentials: `-v ~/.aws:/home/kubelamp/.aws:ro` (and `-e AWS_PROFILE=…` if needed).
+- **Defaults in the image:** listens on `0.0.0.0:7080` with a token (kept in `/data/token`), reads `/kube/config`, no browser, local shell off. The image has a health check; `/healthz` answers without a token.
+- **Docker Compose:** see `docker-compose.yml`.
+
+### Inside Kubernetes
+
+`deploy/kubernetes/kubelamp.yaml` runs KubeLamp as a Deployment that watches the cluster it runs in, with its own service account (no kubeconfig needed):
+
+```sh
+kubectl apply -f deploy/kubernetes/kubelamp.yaml
+kubectl -n kubelamp create secret generic kubelamp-token --from-literal=token="$(openssl rand -hex 16)"
+kubectl -n kubelamp port-forward svc/kubelamp 7080:80     # open http://localhost:7080/?token=<the token>
+```
+
+- **Read-only by default:** the service account gets the built-in `view` role (no Secrets) plus read access to nodes, volumes, CRDs, metrics, Cilium and Gateway API objects, and KubeLamp runs with `KUBELAMP_READ_ONLY=true`.
+- **Terminals and pod tools:** apply `deploy/kubernetes/rbac-operator.yaml` (pod exec, edit, scale, restart, delete, cordon) and set `KUBELAMP_READ_ONLY` to `"false"`. Everyone with the token gets those rights, so put your SSO in front first (oauth2-proxy or a Traefik ForwardAuth middleware).
+- **Ingress:** `deploy/kubernetes/ingress-traefik.yaml` is a Traefik example with TLS.
+- The service account token is re-read on every request, so Kubernetes token rotation needs no restart. Keep one replica: history and tool jobs are kept in memory.
+- You can mount a kubeconfig as well (`KUBELAMP_KUBECONFIG`) to see other clusters next to the one KubeLamp runs in.
 
 ### Requirements in the cluster
 

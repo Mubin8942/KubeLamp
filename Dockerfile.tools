@@ -1,0 +1,34 @@
+# KubeLamp — tools image: Alpine with kubectl, the AWS CLI (for EKS kubeconfigs that run
+# `aws eks get-token`), bash and curl. Use it when your kubeconfig logs in through an exec
+# plugin, or when you enable the local shell (-allow-shell). Tag: <version>-tools.
+ARG GO_VERSION=1.22
+ARG ALPINE_VERSION=3.20
+
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS build
+ARG TARGETOS TARGETARCH
+WORKDIR /src
+COPY . .
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags "-s -w" -o /out/kubelamp .
+
+FROM alpine:${ALPINE_VERSION}
+ARG VERSION=dev
+LABEL org.opencontainers.image.title="KubeLamp (tools)" \
+      org.opencontainers.image.description="KubeLamp with kubectl, AWS CLI, bash and curl for exec-based kubeconfig logins" \
+      org.opencontainers.image.source="https://github.com/zanayeem/KubeLamp" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version="${VERSION}"
+RUN apk add --no-cache ca-certificates tzdata bash curl kubectl aws-cli \
+ && addgroup -g 65532 kubelamp && adduser -D -u 65532 -G kubelamp -h /home/kubelamp -s /bin/bash kubelamp \
+ && mkdir -p /data /kube && chown 65532:65532 /data /kube && chmod 1777 /data /home/kubelamp
+COPY --from=build /out/kubelamp /usr/local/bin/kubelamp
+ENV HOME=/home/kubelamp \
+    KUBELAMP_ADDR=0.0.0.0:7080 \
+    KUBELAMP_NO_BROWSER=true \
+    KUBELAMP_DATA=/data \
+    KUBECONFIG=/kube/config
+USER 65532:65532
+WORKDIR /home/kubelamp
+EXPOSE 7080
+VOLUME ["/data"]
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s CMD ["/usr/local/bin/kubelamp", "-healthcheck"]
+ENTRYPOINT ["/usr/local/bin/kubelamp"]

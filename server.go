@@ -514,6 +514,13 @@ func (s *Server) liveEvents(ctx context.Context, c *Cluster, ns, kind, name stri
 // token / ?token= when bound to other interfaces.
 func (s *Server) guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+			// liveness/readiness for Docker and Kubernetes: no token, no cluster data
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "no-store")
+			_, _ = w.Write([]byte(`{"status":"ok","version":"` + version + `"}`))
+			return
+		}
 		if s.localOnly {
 			host := r.Host
 			if h, _, err := net.SplitHostPort(host); err == nil {

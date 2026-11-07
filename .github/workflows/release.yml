@@ -50,6 +50,10 @@ jobs:
             Download the zip for your OS, unzip, and run `kubelamp` (Windows: `kubelamp.exe`).
             It opens http://127.0.0.1:7080 and reads `~/.kube/config` (or `-kubeconfig <path>`).
 
+            **Docker:** `docker run -p 7080:7080 --user $(id -u):$(id -g) -v ~/.kube:/kube:ro -v kubelamp-data:/data ghcr.io/zanayeem/kubelamp`
+            (also on Docker Hub; `-tools` tags include kubectl and the AWS CLI for EKS logins).
+            Inside Kubernetes: see `deploy/kubernetes/` in the repository.
+
   macos-dmg:
     needs: build
     runs-on: macos-latest
@@ -68,3 +72,75 @@ jobs:
         with:
           tag_name: ${{ env.VERSION }}
           files: dist/*.dmg
+
+  docker:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ github.event.inputs.version || github.ref_name }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Log in to Docker Hub
+        if: env.DOCKERHUB_USERNAME != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Image tags
+        id: tags
+        run: |
+          v=${VERSION#v}; mm=${v%.*}
+          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          repos="ghcr.io/$owner/kubelamp"
+          if [ -n "$DOCKERHUB_USERNAME" ]; then
+            repos="$repos docker.io/$(echo "$DOCKERHUB_USERNAME" | tr '[:upper:]' '[:lower:]')/kubelamp"
+          else
+            echo "::warning::DOCKERHUB_USERNAME / DOCKERHUB_TOKEN secrets are not set: pushing to GHCR only"
+          fi
+          slim=""; tools=""
+          for r in $repos; do
+            slim="$slim,$r:$v,$r:$mm,$r:latest"
+            tools="$tools,$r:$v-tools,$r:$mm-tools,$r:latest-tools"
+          done
+          echo "slim=${slim#,}" >> "$GITHUB_OUTPUT"
+          echo "tools=${tools#,}" >> "$GITHUB_OUTPUT"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - name: Build and push (slim)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.slim }}
+          build-args: VERSION=${{ steps.tags.outputs.version }}
+      - name: Build and push (tools)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.tools
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tools }}
+          build-args: VERSION=${{ steps.tags.outputs.version }}
+      - name: Smoke test the pushed image
+        run: |
+          v=${{ steps.tags.outputs.version }}
+          img=ghcr.io/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/kubelamp:$v
+          docker run -d --name kl -p 7080:7080 "$img"
+          for i in $(seq 1 20); do curl -fsS localhost:7080/healthz && break; sleep 1; done
+          curl -fsS localhost:7080/healthz | grep -q "\"version\":\"$v\""
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:7080/api/clusters)" = 401
+          docker logs kl

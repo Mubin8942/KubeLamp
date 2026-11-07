@@ -1,0 +1,49 @@
+# Optional: lets KubeLamp change things. Apply together with kubelamp.yaml and set
+# KUBELAMP_READ_ONLY to "false" in the Deployment.
+#
+# This enables pod exec (terminals, Shell in all pods, File Transfer/Explorer, Connectivity
+# Inspector, DNS Checker, volume usage), editing YAML, scaling, restarting, deleting and
+# cordoning. Everyone who has the KubeLamp token gets these rights: put KubeLamp behind
+# your SSO (oauth2-proxy / Traefik ForwardAuth) before you apply this.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubelamp-operator
+rules:
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create, get]
+  - apiGroups: [""]
+    resources: [pods, services, configmaps, persistentvolumeclaims, serviceaccounts]
+    verbs: [update, patch, delete]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, daemonsets, replicasets]
+    verbs: [update, patch, delete]
+  - apiGroups: [apps]
+    resources: [deployments/scale, statefulsets/scale, replicasets/scale]
+    verbs: [get, update, patch]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [create, update, patch, delete]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: [update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, networkpolicies]
+    verbs: [update, patch, delete]
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [patch]   # cordon / uncordon
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubelamp-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubelamp-operator
+subjects:
+  - kind: ServiceAccount
+    name: kubelamp
+    namespace: kubelamp

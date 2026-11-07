@@ -1,0 +1,25 @@
+# Optional: publish KubeLamp through Traefik with TLS. Change the host and the TLS secret.
+# Users open https://kubelamp.example.com/?token=<token> once; a cookie keeps them signed in.
+# Strongly recommended: add your SSO in front (Traefik ForwardAuth middleware or oauth2-proxy).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kubelamp
+  namespace: kubelamp
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    # traefik.ingress.kubernetes.io/router.middlewares: kubelamp-sso@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: kubelamp.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: kubelamp, port: {name: http}}
+  tls:
+    - hosts: [kubelamp.example.com]
+      secretName: kubelamp-tls

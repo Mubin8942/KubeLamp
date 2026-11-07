@@ -1,0 +1,22 @@
+# KubeLamp with Docker Compose, using your kubeconfig.
+#   UID=$(id -u) GID=$(id -g) docker compose up -d
+#   docker compose logs kubelamp      # shows the URL with the access token
+services:
+  kubelamp:
+    image: ghcr.io/zanayeem/kubelamp:latest      # or docker.io/<user>/kubelamp; :latest-tools for EKS/aws logins
+    container_name: kubelamp
+    restart: unless-stopped
+    user: "${UID:-1000}:${GID:-1000}"             # so your 600-mode kubeconfig is readable
+    ports:
+      - "7080:7080"
+    environment:
+      KUBELAMP_READ_ONLY: "false"
+      # KUBELAMP_TOKEN: "choose-a-long-random-token"   # otherwise one is generated and kept in /data/token
+    volumes:
+      - ${HOME}/.kube:/kube:ro                     # /kube/config is read by default
+      - kubelamp-data:/data
+      # - ${HOME}/.aws:/home/kubelamp/.aws:ro       # tools image + EKS: aws credentials
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+volumes:
+  kubelamp-data:

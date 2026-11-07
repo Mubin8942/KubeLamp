@@ -1,0 +1,148 @@
+# KubeLamp inside the cluster, READ-ONLY by default.
+#
+#   kubectl apply -f kubelamp.yaml
+#   kubectl -n kubelamp create secret generic kubelamp-token --from-literal=token=$(openssl rand -hex 16)
+#   kubectl -n kubelamp port-forward svc/kubelamp 7080:80     # then open http://localhost:7080/?token=<token>
+#
+# Permissions: the built-in "view" role (all namespaced resources except Secrets) plus read access
+# to cluster-scoped objects KubeLamp shows (nodes, persistent volumes, storage classes, CRDs, metrics,
+# Cilium and Gateway API objects). Nothing can be changed and there is no exec.
+# For exec, terminals, file transfer and the network tools, also apply rbac-operator.yaml and set
+# KUBELAMP_READ_ONLY to "false".
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kubelamp
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubelamp
+  namespace: kubelamp
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubelamp-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: ServiceAccount
+    name: kubelamp
+    namespace: kubelamp
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubelamp-cluster-read
+rules:
+  - apiGroups: [""]
+    resources: [nodes, persistentvolumes, namespaces]
+    verbs: [get, list, watch]
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses, csidrivers, volumeattachments]
+    verbs: [get, list, watch]
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [get, list, watch]
+  - apiGroups: [metrics.k8s.io]
+    resources: [nodes, pods]
+    verbs: [get, list]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingressclasses, networkpolicies, ingresses]
+    verbs: [get, list, watch]
+  - apiGroups: [gateway.networking.k8s.io, cilium.io]
+    resources: ["*"]
+    verbs: [get, list, watch]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles, clusterrolebindings, roles, rolebindings]
+    verbs: [get, list, watch]
+  - apiGroups: [scheduling.k8s.io, node.k8s.io, admissionregistration.k8s.io, apiregistration.k8s.io]
+    resources: ["*"]
+    verbs: [get, list, watch]
+  # Secrets are left out on purpose: anyone with the KubeLamp token could read them.
+  # To list Secrets anyway, uncomment:
+  # - apiGroups: [""]
+  #   resources: [secrets]
+  #   verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubelamp-cluster-read
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubelamp-cluster-read
+subjects:
+  - kind: ServiceAccount
+    name: kubelamp
+    namespace: kubelamp
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubelamp
+  namespace: kubelamp
+  labels: {app.kubernetes.io/name: kubelamp}
+spec:
+  replicas: 1   # state (history, jobs) is in memory: keep one replica
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: kubelamp}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: kubelamp}
+    spec:
+      serviceAccountName: kubelamp
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: kubelamp
+          image: ghcr.io/zanayeem/kubelamp:1.4.0
+          ports:
+            - {name: http, containerPort: 7080}
+          env:
+            - {name: KUBELAMP_READ_ONLY, value: "true"}
+            - {name: KUBELAMP_CLUSTER_NAME, value: "this-cluster"}   # name shown in the UI
+            - {name: KUBELAMP_TOKEN_FILE, value: /secret/token}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: token, mountPath: /secret, readOnly: true}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: token
+          secret:
+            secretName: kubelamp-token
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubelamp
+  namespace: kubelamp
+  labels: {app.kubernetes.io/name: kubelamp}
+spec:
+  selector: {app.kubernetes.io/name: kubelamp}
+  ports:
+    - {name: http, port: 80, targetPort: http}

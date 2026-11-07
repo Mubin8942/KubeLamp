@@ -1,0 +1,9 @@
+.git
+.github
+dist
+*.zip
+*.dmg
+docs
+packaging
+**/*_test.go
+tools/jstest

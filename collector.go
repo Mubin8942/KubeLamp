@@ -469,15 +469,32 @@ func (c *Cluster) Spark(key string, n int) HistoryView {
 // ---------------------------------------------------------------- registry of clusters
 
 type Registry struct {
-	mu       sync.RWMutex
-	paths    []string
-	loadErr  string
-	clusters []*Cluster
-	byName   map[string]*Cluster
+	inCluster *resolvedContext // set when KubeLamp runs inside Kubernetes
+	mu        sync.RWMutex
+	paths     []string
+	loadErr   string
+	clusters  []*Cluster
+	byName    map[string]*Cluster
 }
 
 func (r *Registry) Load(paths []string, access map[string]AccessSettings) {
 	ctxs, err := loadKubeconfig(paths)
+	if r.inCluster != nil {
+		ic := *r.inCluster
+		for _, c := range ctxs {
+			if c.Name == ic.Name {
+				ic.Name += " (in-cluster)"
+				ic.ContextInfo.Name = ic.Name
+			}
+		}
+		if len(ctxs) > 0 {
+			ic.Current = false
+		}
+		ctxs = append([]resolvedContext{ic}, ctxs...)
+		if len(paths) == 0 {
+			err = nil // in-cluster only: no kubeconfig is expected
+		}
+	}
 	r.mu.Lock()
 	old := r.clusters
 	r.paths = paths
@@ -495,6 +512,9 @@ func (r *Registry) Load(paths []string, access map[string]AccessSettings) {
 	r.mu.Unlock()
 	for _, c := range old {
 		c.Close()
+	}
+	if err != nil {
+		log.Printf("kubeconfig problem: %v", err)
 	}
 	log.Printf("loaded %d contexts from %v", len(ctxs), paths)
 }
