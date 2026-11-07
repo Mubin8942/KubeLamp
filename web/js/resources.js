@@ -72,6 +72,16 @@ const A = {
     }
     Term.openExec(ctx, ns, pod, c);
   },
+  async execAll(ctx, ns, pods, containers) {
+    if (!pods.length) return toast('No running pods', 'err');
+    const r = await modal({ title: `Shell in ${pods.length} pod${pods.length === 1 ? '' : 's'}`,
+      body: `<p>Opens one session per pod, side by side. Broadcast is on: what you type goes to every ticked session, so check each command before pressing Enter.</p>
+        ${containers.length > 1 ? `<label class="field">Container<select id="execC">${containers.map(x => `<option>${esc(x)}</option>`).join('')}</select></label>` : ''}
+        ${pods.length > 12 ? `<p class="muted">Only the first 12 pods are opened.</p>` : ''}`,
+      actions: [{ label: 'Cancel', value: null }, { label: 'Open shells', kind: 'primary', submit: true, run: async d => ({ c: $('#execC', d)?.value || containers[0] }) }] });
+    if (!r) return;
+    Term.openMulti(ctx, ns, pods, r.c);
+  },
   logs: (ctx, ns, kind, name) => { location.hash = `${ctxPath(ctx)}/logs?ns=${enc(ns)}&kind=${enc(kind)}&name=${enc(name)}`; },
   yaml: (ctx, group, resource, ns, name) => { location.hash = objHref(ctx, group, resource, ns, name, 'yaml'); },
 };

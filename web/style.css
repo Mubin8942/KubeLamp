@@ -329,7 +329,33 @@ dialog::backdrop { background: rgba(5,9,14,.55); }
 .term-icon.on { color: #e5b84a; }
 .term-icon svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .term-body { flex: 1; min-height: 0; position: relative; }
+.term-cell { position: absolute; inset: 0; }
+.term-cell[hidden] { display: none; }
+.term-ph { display: none; }
 .term-pane { position: absolute; inset: 6px 4px 4px 12px; }
+.term.full { position: fixed; inset: 0; height: auto !important; z-index: 60; border-top: 0; }
+.term.full .term-grip { display: none; }
+.term.split .term-body { display: grid; gap: 6px; padding: 6px; }
+.term.split .term-cell { position: relative; inset: auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; border: 1px solid #1f2a38; border-radius: 8px; overflow: hidden; background: #0b1016; }
+.term.split .term-cell.on { border-color: #4a6fae; }
+.term.split .term-cell.bc { border-color: #d9822b; box-shadow: inset 0 0 0 1px rgba(217,130,43,.35); }
+.term.split .term-ph { display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 6px 0 10px; flex: none; background: #0f151d; border-bottom: 1px solid #1c2633; color: #8d9bad; font: 12px var(--sans); }
+.term.split .term-cell.on .term-ph { color: #e6edf3; }
+.term-ph .grow { flex: 1; }
+.term-ph .ico { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; flex: none; }
+.term-ct { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.term-dead { color: #ef6b6b; font-size: 11px; }
+.term-bcchk { display: inline-flex; align-items: center; gap: 4px; color: #e5a45a; cursor: pointer; white-space: nowrap; }
+.term-ph .x { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 5px; opacity: .6; cursor: pointer; }
+.term-ph .x:hover { opacity: 1; background: rgba(255,255,255,.08); }
+.term-ph .x svg { width: 11px; height: 11px; stroke: currentColor; stroke-width: 2.2; fill: none; }
+.term.split .term-pane { position: relative; inset: auto; flex: 1; min-height: 0; margin: 4px 4px 2px 8px; }
+.term-bcbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 5px 12px; background: #3a2410; color: #f2c08a; border-bottom: 1px solid #5c3a17; font-size: 12.5px; flex: none; }
+.term-bcbar[hidden] { display: none; }
+.term-bcbar button { background: none; border: 1px solid #7a4d1f; color: #f2c08a; border-radius: 6px; padding: 1px 8px; cursor: pointer; font: inherit; }
+.term-bcbar button:hover { background: rgba(255,255,255,.06); }
+.term-icon#termBc.on { color: #e5a45a; } .term-icon#termSplit.on, .term-icon#termFull.on { color: #8fb3ff; }
+.term-tab.bc::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #e5a45a; margin-left: -2px; }
 .term-empty { position: absolute; inset: 0; display: grid; place-items: center; color: #7c8a9c; text-align: center; }
 
 @media (max-width: 1200px) { .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } .g3 { grid-template-columns: 1fr 1fr; } }

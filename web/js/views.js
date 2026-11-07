@@ -344,6 +344,7 @@ async function viewWorkload(route) {
       <div class="right"><a class="btn primary" href="${logsHref}">${ICON.logs}Logs of all ${w.pods} pods</a>
         ${!ro() && kind !== 'DaemonSet' ? `<button class="btn" id="aScale">${ICON.scale}Scale</button>` : ''}
         ${!ro() ? `<button class="btn" id="aRestart">${ICON.restart}Restart</button>` : ''}
+        ${!ro() ? `<button class="btn" id="aExecAll" title="Open a shell in every running pod, side by side, with broadcast input">${ICON.term}Shell in all pods</button>` : ''}
         <a class="btn" href="${objHref(ctx, g, r, ns, name, 'yaml')}">${ICON.edit}YAML</a>
         <button class="btn ghost" id="aMore" title="More actions">${ICON.more}</button></div></div>
       <div class="tiles" style="grid-template-columns:repeat(4,minmax(0,1fr))">
@@ -362,6 +363,7 @@ async function viewWorkload(route) {
       <div class="card mt"><div class="card-head"><h3>Events</h3><span class="cap">this ${esc(kind.toLowerCase())}, its ReplicaSets and pods</span></div>${eventsList(d.events.slice(0, 30))}</div>`;
     $('#aScale')?.addEventListener('click', async () => { if (await A.scale(ctx, g, r, ns, name, w.desired)) setTimeout(render, 1500); });
     $('#aRestart')?.addEventListener('click', async () => { if (await A.restart(ctx, g, r, ns, name, kind)) setTimeout(render, 1500); });
+    $('#aExecAll')?.addEventListener('click', () => A.execAll(ctx, ns, d.pods.filter(p => p.phase === 'Running').map(p => p.name), d.containers.map(c => c.name)));
     $('#aMore').addEventListener('click', () => objectMenu($('#aMore'), { ctx, group: g, resource: r, ns, name, kind, replicas: w.desired },
       deleted => { if (deleted) location.hash = `${ctxPath(ctx)}/workloads?kind=${kind}`; else render(); }));
     drawUsageCharts('wl', d.history, [{ name: 'Requests', value: w.cpu.req }, { name: 'Limits', value: w.cpu.lim, soft: true }], [{ name: 'Requests', value: w.mem.req }, { name: 'Limits', value: w.mem.lim, soft: true }]);

@@ -91,6 +91,13 @@ Lists show the same columns as `kubectl get`, including CRD printer columns. A *
 
 **Terminal highlighting (like MobaXterm):** the terminal colours IP addresses (IPv4 with port or CIDR, IPv6), URLs, MAC addresses and timestamps, and words such as `error`, `failed`, `refused`, `CrashLoopBackOff` (red), `warning`, `Pending`, `retrying` (yellow), `ok`, `success`, `Running`, `Ready` (green), `INFO` (cyan) and `DEBUG` (grey), plus the level letter of Kubernetes `E/W/I` log lines. Output the program already coloured is left alone, and full-screen programs (vim, less, top, k9s) are not touched. Toggle it with the highlighter button in the terminal bar.
 
+**Terminal fullscreen, split view and broadcast (Termius style):**
+- **Fullscreen:** the corner-arrows button (or `Ctrl+Shift+F`) makes the terminal fill the whole window; press it again to go back. For true screen fullscreen, also press your browser's fullscreen key (F11 / Ctrl+Cmd+F).
+- **Split view:** the grid button (`Ctrl+Shift+S`) shows every session side by side (up to 4 columns), each with its own size; click a pane to focus it. Turn it off to go back to tabs.
+- **Broadcast:** the broadcast button (`Ctrl+Shift+B`) sends what you type, including pastes, to every session that has *broadcast* ticked. Ticked panes have an orange border and the orange bar shows how many sessions receive input, with *Tick all*, *Untick all* and *Stop*.
+- **Shell in all pods:** on a Deployment, StatefulSet or DaemonSet page, *Shell in all pods* opens one exec session per running pod (up to 12) in split view with broadcast on, for example to run the same check on every replica.
+- Broadcast types into real shells: check the command before pressing Enter, and untick sessions you don't want to touch.
+
 **Logs for a whole Deployment:**
 - **Merged stream:** every pod matched by the Deployment's label selector, live, colour-coded per pod.
 - **Rollouts:** new pods are picked up automatically.
