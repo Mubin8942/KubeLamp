@@ -57,6 +57,47 @@ function attnBlock(c) {
     ${a.namespaces > a.top.length ? `<li class="muted more">+ ${a.namespaces - a.top.length} more — open Namespaces</li>` : ''}</ul></div>`;
 }
 
+// ------------------------------------------------------------------ TLS certificate expiry
+const CERT_CLS = { ok: 'good', warn: 'warn', crit: 'crit', expired: 'crit' };
+const certWhen = c => c.daysLeft < 0 ? `expired ${-c.daysLeft === 1 ? '1 day' : -c.daysLeft + ' days'} ago`
+  : c.daysLeft === 0 ? (c.state === 'expired' ? 'expired today' : 'expires today')
+  : c.daysLeft >= 730 ? `expires in ${Math.floor(c.daysLeft / 365)} years` : `expires in ${c.daysLeft === 1 ? '1 day' : c.daysLeft + ' days'}`;
+const certDate = c => new Date(c.notAfter).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
+const certRole = { server: 'API server certificate', client: 'Client certificate', ca: 'Cluster CA' };
+// one line for the cluster cards on the home page: the certificate that expires first
+function certLine(c) {
+  const r = c.certs;
+  if (!r) return '';
+  const s = r.soonest;
+  if (!s) return r.insecure ? `<div class="cert-line muted" title="insecure-skip-tls-verify is set in the kubeconfig">TLS: certificate checks are off for this cluster</div>` : '';
+  const all = r.certs.map(x => `${certRole[x.role]}: ${certWhen(x)} (${certDate(x)})`).join('\n');
+  return `<div class="cert-line ${CERT_CLS[s.state]}" title="${esc(all)}"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+    <span>${esc(certRole[s.role])} ${esc(certWhen(s))}</span><span class="muted">${esc(certDate(s))}</span></div>`;
+}
+// the warning banner on the cluster pages
+function certBanner(c) {
+  const r = c.certs;
+  if (!r || !['warn', 'crit', 'expired'].includes(r.worst)) return '';
+  const bad = r.certs.filter(x => x.state !== 'ok').sort((a, b) => a.daysLeft - b.daysLeft);
+  const exp = bad.some(x => x.state === 'expired');
+  return `<div class="banner ${exp || r.worst === 'crit' ? 'err' : ''}"><b>${exp ? 'Certificate expired.' : 'Certificate expiring soon.'}</b><span>${bad.map(x => `${esc(certRole[x.role])} ${esc(certWhen(x))} (${esc(certDate(x))})`).join('; ')}.
+    ${bad.some(x => x.role !== 'ca') ? 'On kubeadm clusters, renew with <code>kubeadm certs renew all</code> on each control-plane node, then restart the control-plane pods' + (bad.some(x => x.role === 'client') ? ' and use the new <code>admin.conf</code>' : '') + '.' : ''}</span></div>`;
+}
+function certCard(c) {
+  const r = c.certs;
+  if (!r) return '';
+  const rows = r.certs.map(x => `<tr><td class="name">${esc(certRole[x.role])}${x.note ? `<span class="sub">${esc(x.note)}</span>` : ''}</td>
+      <td><span class="mono">${esc(x.subject)}</span><span class="sub">issued by ${esc(x.issuer)}</span></td>
+      <td>${esc(certDate(x))}<span class="sub">valid from ${esc(new Date(x.notBefore).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }))}</span></td>
+      <td><span class="ct-chip ${CERT_CLS[x.state]}">${esc(certWhen(x))}</span></td>
+      <td class="muted cert-sans" title="${esc((x.sans || []).join(', '))}">${esc((x.sans || []).join(', '))}</td></tr>`).join('');
+  return `<div class="card mt" id="certCard"><div class="card-head"><h3>TLS certificates</h3><span class="cap">from the connection and your kubeconfig · warns at 30 days</span></div>
+    ${rows ? `<div class="tbl-wrap"><table class="t"><thead><tr><th>Certificate</th><th>Subject</th><th>Expires</th><th>Status</th><th>Names (SAN)</th></tr></thead><tbody>${rows}</tbody></table></div>` : ''}
+    ${r.err && !r.certs.some(x => x.role === 'server') ? `<div class="muted" style="margin-top:6px">API server certificate: ${esc(r.err)}</div>` : ''}
+    ${r.insecure ? `<div class="muted" style="margin-top:6px">TLS verification is off for this cluster (<code>insecure-skip-tls-verify</code> in the kubeconfig).</div>` : ''}
+    <div class="cap" style="margin-top:8px">The API server certificate is the one this endpoint presents (a load balancer's certificate if it terminates TLS). Other control-plane certificates (etcd, front-proxy, kubelet, controller-manager, scheduler) are not visible through the API: on kubeadm clusters check them with <code>kubeadm certs check-expiration</code> on a control-plane node.</div></div>`;
+}
+
 async function viewHome() {
   const kc = await api('kubeconfig');
   S.kc = kc;
@@ -68,7 +109,7 @@ async function viewHome() {
       let body;
       if (c.status === 'loading') body = `<div class="muted">Connecting…</div>`;
       else if (c.status === 'error') body = `<div class="err"><b>${/forbidden|RBAC|nothing readable/i.test(c.error || '') ? 'No access.' : 'Unreachable.'}</b> ${esc(c.error)}</div>
-        ${/forbidden|RBAC|nothing readable/i.test(c.error || '') ? `<button class="btn" data-access="${esc(c.name)}">Set namespaces…</button>` : ''}`;
+        ${/forbidden|RBAC|nothing readable/i.test(c.error || '') ? `<button class="btn" data-access="${esc(c.name)}">Set namespaces…</button>` : ''}${certLine(c)}`;
       else body = `<div class="kv">
           ${isNs(c) ? `<div><span>Namespaces</span><strong>${(c.scopeNamespaces || []).length}</strong></div>` : `<div><span>Nodes</span><strong>${c.nodesReady}/${c.nodesTotal}</strong></div>`}
           <div><span>Pods</span><strong>${fmtNum(c.pods.running)}</strong></div>
@@ -78,7 +119,7 @@ async function viewHome() {
           <div><div class="card-head" style="margin-bottom:4px"><span class="cap">CPU</span><span class="right muted">${c.metricsAvailable ? (isNs(c) ? (c.cpu.quota ? 'vs quota' : 'vs requests') : '') : 'no metrics'}</span></div>${mcell(c.cpu.used, capOf(c.cpu) || c.cpu.req, capOf(c.cpu) ? c.cpu.req : null, fmtCPU, c.metricsAvailable)}</div>
           <div><div class="card-head" style="margin-bottom:4px"><span class="cap">Memory</span><span class="right muted">${c.metricsAvailable ? (isNs(c) ? (c.mem.quota ? 'vs quota' : 'vs requests') : '') : 'no metrics'}</span></div>${mcell(c.mem.used, capOf(c.mem) || c.mem.req, capOf(c.mem) ? c.mem.req : null, fmtMem, c.metricsAvailable)}</div>
         </div>
-        ${attnBlock(c)}`;
+        ${attnBlock(c)}${certLine(c)}`;
       return `<div class="card ccard" data-ctx="${esc(c.name)}">
         <div class="top"><i class="dot ${c.status}" style="margin-top:5px"></i><div style="min-width:0;flex:1"><div class="nm">${esc(shortName(c.name))}</div>${sub}</div>
         <div style="display:flex;gap:4px;flex-direction:column;align-items:flex-end">${c.version ? `<span class="tag">${esc(c.version)}</span>` : ''}${c.current ? '<span class="tag cur">current</span>' : ''}${isNs(c) ? '<span class="tag" title="Role/RoleBinding access">namespace-scoped</span>' : ''}</div></div>
@@ -118,6 +159,7 @@ function clusterHead(sum, title, crumbs = '') {
     <span class="muted" id="updated">updated ${c.at ? age(c.at) + ' ago' : '—'}</span></div></div>
     <div class="right"><button class="btn" id="accessBtn" title="Cluster-wide or namespace-scoped (Role/RoleBinding) access"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>${esc(isNs(c) ? 'Namespaces: ' + (c.scopeNamespaces || []).length : 'Access')}</button><button class="btn" id="refreshBtn"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>Refresh</button></div></div>
     ${isNs(c) ? `<div class="banner info"><b>Namespace-scoped.</b><span>Your credentials have Role/RoleBinding access, so KubeLamp shows only <b>${esc((c.scopeNamespaces || []).join(', '))}</b>. ${c.nodesTotal ? 'Nodes are shown because your user may list them; node requests count only your pods' : 'Nodes and cluster capacity need cluster-wide rights'}${c.cpu.quota || c.mem.quota ? '; ResourceQuota is used as the capacity line' : ''}. <a href="#" data-acc>Change namespaces</a></span></div>` : ''}
+    ${certBanner(c)}
     ${c.status === 'partial' ? `<div class="banner"><b>Some data is missing.</b><span>${esc(c.error)}</span></div>` : ''}
     ${!c.metricsAvailable ? (/forbidden|RBAC/i.test(c.metricsErr || '')
       ? `<div class="banner"><b>No live metrics.</b><span>Your Role doesn't allow reading metrics. Ask for <code>get, list</code> on <code>pods</code> in API group <code>metrics.k8s.io</code> in your namespaces.</span></div>`
@@ -196,7 +238,8 @@ async function viewOverview(route) {
       <div class="grid g2 mt">
         <div class="card"><div class="card-head"><h3>Pods needing attention</h3><span class="cap">${d.problems.length}</span></div><div id="probBox">${probT.html}</div></div>
         <div class="card"><div class="card-head"><h3>Recent warnings</h3></div>${eventsList(d.warnings.slice(0, 12))}</div>
-      </div>`;
+      </div>
+      ${certCard(s)}`;
     drawUsageCharts('ov', d.history, [{ name: 'Requests', value: s.cpu.req }, { name: capName(s), value: cpuCap, soft: true }], [{ name: 'Requests', value: s.mem.req }, { name: capName(s), value: memCap, soft: true }]);
     bindHbarTips($('#nsCpu'), d.namespaces, r => r.cpu.used, 'cpu');
     bindHbarTips($('#nsMem'), d.namespaces, r => r.mem.used, 'mem');

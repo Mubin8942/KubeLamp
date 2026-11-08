@@ -187,9 +187,15 @@ function live(ms, fn) {
         main.innerHTML = `<div class="empty-state"><h2>Can't reach ${esc(ctx ? shortName(ctx) : 'the server')}</h2><p>${esc(e.message)}</p>
           <p class="muted">${/forbidden|RBAC|nothing readable/i.test(e.message)
             ? 'Your credentials may only have Role/RoleBinding rights. Tell KubeLamp which namespaces you can read.'
+            : /x509|certificate/i.test(e.message) ? 'The API server\'s TLS certificate could not be verified; see the certificate details below. KubeLamp retries automatically.'
             : `Check VPN or network access to the API server, and that <code>kubectl --context ${esc(ctx || '')} get pods</code> works. KubeLamp retries automatically.`}</p>
-          ${ctx ? '<button class="btn primary" id="errAccess">Access settings</button>' : ''}</div>`;
+          ${ctx ? '<button class="btn primary" id="errAccess">Access settings</button>' : ''}</div><div id="errCerts"></div>`;
         $('#errAccess')?.addEventListener('click', () => openAccess(ctx));
+        // an expired certificate is a common reason: show what KubeLamp could read about it
+        if (ctx) api('clusters').then(list => {
+          const c = (list || []).find(x => x.name === ctx), box = $('#errCerts');
+          if (box && c && c.certs && c.certs.certs.length && (c.certs.worst !== 'ok' || /x509|certificate/i.test(e.message))) box.innerHTML = certBanner(c) + certCard(c);
+        }).catch(() => {});
         return;
       }
       let b = $('#liveErr');

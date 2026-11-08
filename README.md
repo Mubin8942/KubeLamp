@@ -98,6 +98,11 @@ Lists show the same columns as `kubectl get`, including CRD printer columns. A *
 - **Shell in all pods:** on a Deployment, StatefulSet or DaemonSet page, *Shell in all pods* opens one exec session per running pod (up to 12) in split view with broadcast on, for example to run the same check on every replica.
 - Broadcast types into real shells: check the command before pressing Enter, and untick sessions you don't want to touch.
 
+**TLS certificate expiry:** every cluster card on *All clusters* shows the certificate that expires first (green, yellow under 30 days, red under 7 days or expired), and the cluster overview has a *TLS certificates* table with a warning banner:
+- **API server certificate:** the one the endpoint presents, recorded on every connection. When a cluster is unreachable (an expired certificate does exactly that), KubeLamp reads it with a TLS handshake only, sending no request and no credentials.
+- **Client certificate** from the kubeconfig (kubeadm's `admin.conf` expires after a year) and the **cluster CA**.
+- Other control-plane certificates (etcd, front-proxy, kubelet, controller-manager, scheduler) are not visible through the API; on kubeadm clusters check them with `kubeadm certs check-expiration`.
+
 **Logs for a whole Deployment:**
 - **Merged stream:** every pod matched by the Deployment's label selector, live, colour-coded per pod.
 - **Rollouts:** new pods are picked up automatically.

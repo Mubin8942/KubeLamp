@@ -258,6 +258,13 @@ type Client struct {
 	base *url.URL
 	http *http.Client // for normal requests (with timeout via context)
 	auth *authState
+
+	// certificate expiry (certs.go)
+	seen       *certSeen
+	cas        []*x509.Certificate
+	insecure   bool
+	proxied    bool
+	serverName string
 }
 
 type authState struct {
@@ -281,6 +288,7 @@ func newClient(rc resolvedContext) (*Client, error) {
 		return nil, fmt.Errorf("bad server URL: %w", err)
 	}
 	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: rc.cluster.TLSServerName}
+	var cas []*x509.Certificate
 	if rc.cluster.Insecure {
 		tlsCfg.InsecureSkipVerify = true
 	} else if ca, err := dataOrFile(rc.cluster.CAData, rc.cluster.CAFile, rc.cluster.dir); err != nil {
@@ -291,6 +299,13 @@ func newClient(rc resolvedContext) (*Client, error) {
 			return nil, errors.New("certificate authority data is not valid PEM")
 		}
 		tlsCfg.RootCAs = pool
+		cas = parsePEMCerts(ca)
+	}
+	// remember the certificate the API server presents on every handshake (expiry, certs.go)
+	seen := &certSeen{}
+	tlsCfg.VerifyConnection = func(cs tls.ConnectionState) error {
+		seen.record(cs.PeerCertificates)
+		return nil
 	}
 
 	as := &authState{user: rc.user, server: rc.cluster.Server}
@@ -334,7 +349,8 @@ func newClient(rc resolvedContext) (*Client, error) {
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
 	}
-	return &Client{Info: rc.ContextInfo, base: base, http: &http.Client{Transport: tr}, auth: as}, nil
+	return &Client{Info: rc.ContextInfo, base: base, http: &http.Client{Transport: tr}, auth: as,
+		seen: seen, cas: cas, insecure: rc.cluster.Insecure, proxied: rc.cluster.ProxyURL != "", serverName: rc.cluster.TLSServerName}, nil
 }
 
 // execCredential runs an exec plugin (aws eks get-token, kubelogin, gke-gcloud-auth-plugin…).

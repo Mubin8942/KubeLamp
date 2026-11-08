@@ -615,18 +615,19 @@ func (c *cluster) serveLog(w http.ResponseWriter, r *http.Request, ns, name stri
 
 func mkCA() (*x509.Certificate, *ecdsa.PrivateKey, []byte) {
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	tpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "mock-ca"},
-		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(24 * time.Hour), IsCA: true,
+	tpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "kubernetes"},
+		NotBefore: time.Now().Add(-400 * 24 * time.Hour), NotAfter: time.Now().Add(9 * 365 * 24 * time.Hour), IsCA: true,
 		KeyUsage: x509.KeyUsageCertSign, BasicConstraintsValid: true}
 	der, _ := x509.CreateCertificate(rand.Reader, tpl, tpl, &key.PublicKey, key)
 	cert, _ := x509.ParseCertificate(der)
 	return cert, key, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 }
 
-func mkLeaf(ca *x509.Certificate, caKey *ecdsa.PrivateKey, cn string, server bool) (certPEM, keyPEM []byte) {
+// mkLeaf issues a certificate valid until now+validFor (negative: already expired).
+func mkLeaf(ca *x509.Certificate, caKey *ecdsa.PrivateKey, cn string, server bool, validFor time.Duration) (certPEM, keyPEM []byte) {
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	tpl := &x509.Certificate{SerialNumber: big.NewInt(time.Now().UnixNano()), Subject: pkix.Name{CommonName: cn},
-		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(24 * time.Hour), KeyUsage: x509.KeyUsageDigitalSignature}
+		NotBefore: time.Now().Add(validFor - 365*24*time.Hour), NotAfter: time.Now().Add(validFor), KeyUsage: x509.KeyUsageDigitalSignature}
 	if server {
 		tpl.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
 		tpl.IPAddresses = []net.IP{net.ParseIP("127.0.0.1")}
@@ -645,14 +646,21 @@ func main() {
 	os.MkdirAll(*dir, 0o755)
 	mockRoot = *dir
 	ca, caKey, caPEM := mkCA()
-	srvCert, srvKey := mkLeaf(ca, caKey, "kube-apiserver", true)
-	cliCert, cliKey := mkLeaf(ca, caKey, "admin", false)
-	pair, _ := tls.X509KeyPair(srvCert, srvKey)
+	// certificate expiry for the cert check: prod-dc1's API server certificate expires in 25 days
+	// and its admin client certificate in 12, eks-binge's in ~300 days, team-dc1's in 5 days and
+	// legacy-dc3's expired 3 days ago (so that cluster is unreachable, like in real life).
+	day := 24 * time.Hour
+	srvPair := func(valid time.Duration) tls.Certificate {
+		c, k := mkLeaf(ca, caKey, "kube-apiserver", true, valid+time.Hour)
+		p, _ := tls.X509KeyPair(c, k)
+		return p
+	}
+	cliCert, cliKey := mkLeaf(ca, caKey, "kubernetes-admin", false, 12*day+time.Hour)
 	pool := x509.NewCertPool()
 	pool.AddCert(ca)
 
 	const token = "mock-eks-token-123"
-	serve := func(c *cluster, requireClientCert bool, tok string, allow func(string) bool) string {
+	serve := func(c *cluster, requireClientCert bool, tok string, allow func(string) bool, pair tls.Certificate) string {
 		ln, _ := net.Listen("tcp", "127.0.0.1:0")
 		cfg := &tls.Config{Certificates: []tls.Certificate{pair}, ClientCAs: pool, ClientAuth: tls.VerifyClientCertIfGiven}
 		auth := func(r *http.Request) bool {
@@ -666,8 +674,9 @@ func main() {
 	}
 	prod := newCluster("prod-dc1", 6, 1, true)
 	eks := newCluster("eks-binge", 4, 2, false)
-	u1 := serve(prod, true, "", nil)
-	u2 := serve(eks, false, token, nil)
+	u1 := serve(prod, true, "", nil, srvPair(25*day))
+	u2 := serve(eks, false, token, nil, srvPair(300*day))
+	u4 := serve(prod, true, "", nil, srvPair(-3*day))
 	// Role/RoleBinding-only user: may read payments + ecrm, nothing cluster-scoped
 	team := newCluster("team-dc1", 5, 3, true)
 	teamAllow := func(p string) bool {
@@ -683,7 +692,7 @@ func main() {
 		}
 		return false
 	}
-	u3 := serve(team, false, "team-token", teamAllow)
+	u3 := serve(team, false, "team-token", teamAllow, srvPair(5*day))
 
 	// rollout simulation: every 90s replace one payments-api pod
 	go func() {
@@ -728,6 +737,10 @@ clusters:
   cluster:
     server: %s
     certificate-authority-data: %s
+- name: legacy-dc3
+  cluster:
+    server: %s
+    certificate-authority-data: %s
 users:
 - name: kubernetes-admin
   user:
@@ -754,7 +767,9 @@ contexts:
   context: {cluster: staging-dc2, user: staging-admin}
 - name: team-payments
   context: {cluster: team-dc1, user: dev-team, namespace: payments}
-`, u1, b64(caPEM), u2, b64(caPEM), u3, b64(caPEM), b64(cliCert), b64(cliKey), plugin)
+- name: legacy-dc3
+  context: {cluster: legacy-dc3, user: kubernetes-admin}
+`, u1, b64(caPEM), u2, b64(caPEM), u3, b64(caPEM), u4, b64(caPEM), b64(cliCert), b64(cliKey), plugin)
 	os.WriteFile(filepath.Join(*dir, "kubeconfig"), []byte(kc), 0o600)
 	names := []string{}
 	for _, p := range prod.pods {

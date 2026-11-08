@@ -538,3 +538,10 @@ a.ft-name { color: var(--accent); text-decoration: none; } a.ft-name:hover { tex
 .crit-t { color: var(--critical); }
 .ct-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .ct-res { margin-bottom: 12px; }
+
+/* TLS certificate expiry */
+.cert-line { display: flex; align-items: center; gap: 7px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); font-size: 12.5px; flex-wrap: wrap; }
+.cert-line svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; flex: none; }
+.cert-line.good { color: var(--good); } .cert-line.warn { color: var(--warning); } .cert-line.crit { color: var(--critical); font-weight: 600; }
+.cert-line .muted { font-weight: 400; margin-left: auto; }
+.cert-sans { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }

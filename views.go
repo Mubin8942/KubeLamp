@@ -38,6 +38,7 @@ type ClusterSummary struct {
 	Mem              Res              `json:"mem"`
 	Warnings1h       int              `json:"warnings1h"`
 	Spark            HistoryView      `json:"spark"`
+	Certs            *CertReport      `json:"certs,omitempty"`
 	Scope            string           `json:"scope"`           // cluster | namespaced
 	ScopeNamespaces  []string         `json:"scopeNamespaces"` // when namespaced
 	AccessMode       string           `json:"accessMode"`      // configured: auto | cluster | namespaced
@@ -76,6 +77,9 @@ func summarize(c *Cluster) ClusterSummary {
 	sum := ClusterSummary{
 		Name: c.Info.Name, Server: c.Info.Server, AuthType: c.Info.AuthType,
 		Current: c.Info.Current, Namespace: c.Info.Namespace, Status: "loading",
+	}
+	if c.client != nil {
+		sum.Certs = c.client.CertReport()
 	}
 	acc := c.Access()
 	sum.AccessMode, sum.AccessNamespaces = acc.Mode, acc.Namespaces
