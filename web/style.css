@@ -548,3 +548,6 @@ a.ft-name { color: var(--accent); text-decoration: none; } a.ft-name:hover { tex
 
 .ct-ips { font-size: 11.5px; color: var(--muted); margin-top: 2px; white-space: normal; overflow-wrap: anywhere; }
 .ct-ips.warn { color: var(--warning); } .ct-ips.crit { color: var(--critical); } .ct-ips b { font-weight: 600; }
+
+.ct-st { font-size: 12px; } .ct-st.good { color: var(--good); } .ct-st.warn { color: var(--warning); } .ct-st.crit { color: var(--critical); }
+.ct-st.dns { color: var(--s7); } .ct-st.tls { color: var(--good); } .ct-st.grey { color: var(--muted); }

@@ -147,7 +147,7 @@ async function viewConnTest(route) {
   }
 
   // ---- job state and results
-  const T = { job: null, sources: [], checks: [], res: new Map(), policy: {}, warnings: [], next: 0, view: 'target', onlyProblems: false, limit: 200, timer: 0 };
+  const T = { openPods: new Set(), job: null, sources: [], checks: [], res: new Map(), policy: {}, warnings: [], next: 0, view: 'target', onlyProblems: false, limit: 200, timer: 0 };
   const rkey = (si, ci) => si * 100000 + ci;
   const jobDone = () => !T.job || T.job.state === 'done' || T.job.state === 'cancelled';
   async function start() {
@@ -267,10 +267,14 @@ async function viewConnTest(route) {
       rowsHtml = `<div class="ct-scroll"><table class="ct-matrix"><thead><tr><th class="sticky">Pod</th><th>Node / IPs</th><th>Result</th><th>Network policies selecting this pod</th></tr></thead><tbody>
         ${T.sources.map((s, si) => {
           const counts = countsFor(T.checks.map((_, ci) => [si, ci]));
-          const bad = T.checks.map((c, ci) => ({ c, ci, r: T.res.get(rkey(si, ci)) })).filter(x => x.r && !['open', 'refused', 'tls'].includes(x.r.state));
+          const done = T.checks.map((c, ci) => ({ c, ci, r: T.res.get(rkey(si, ci)) })).filter(x => x.r);
+          const okish = x => ['open', 'refused', 'tls'].includes(x.r.state);
+          const bad = done.filter(x => !okish(x));
+          const rank = { timeout: 0, unreachable: 1, dns: 2, error: 3, notool: 4, noshell: 5, refused: 6, tls: 7, open: 8 };
+          const list = (T.onlyProblems ? bad : done).slice().sort((a, b) => (rank[a.r.state] ?? 9) - (rank[b.r.state] ?? 9) || a.ci - b.ci);
           return `<tr><td class="sticky mono">${esc(s.pod)}${s.container ? `<div class="muted">${esc(s.container)}${s.tool ? ' · ' + esc(s.tool) : ''}</div>` : ''}</td>
             <td><div>${esc(s.node)}</div><div class="muted mono">pod ${esc(s.podIP)} · host ${esc(s.hostIP)}${s.hostNetwork ? ' · host network' : ''}</div></td>
-            <td class="ct-verdict">${chipsHtml(counts)}${bad.length ? `<details class="ct-det"><summary>${bad.length} not open</summary>${bad.slice(0, 40).map(x => `<div><button class="linkish" data-s="${si}" data-c="${x.ci}">${esc(x.c.label)}</button>${Array.isArray(x.r.ips) && x.r.ips.length ? ` <span class="muted mono">(${esc(ipList(x.r.ips, 3))})</span>` : ''} ${esc((CT_STATES[x.r.state] || {}).label || x.r.state)}</div>`).join('')}${bad.length > 40 ? `<div class="muted">+${bad.length - 40} more (use the CSV)</div>` : ''}</details>` : ''}</td>
+            <td class="ct-verdict">${chipsHtml(counts)}${list.length ? `<details class="ct-det" ${T.openPods.has(si) ? 'open' : ''} data-si="${si}"><summary>${T.onlyProblems ? `${bad.length} not open` : `All ${done.length} result${done.length === 1 ? '' : 's'}${bad.length ? ` · ${bad.length} not open` : ' · all reachable'}`}</summary>${list.slice(0, 80).map(x => { const m = CT_STATES[x.r.state] || CT_STATES.error; return `<div class="ct-detrow"><button class="linkish" data-s="${si}" data-c="${x.ci}">${esc(x.c.label)}</button>${Array.isArray(x.r.ips) && x.r.ips.length ? ` <span class="muted mono">(${esc(ipList(x.r.ips, 3))})</span>` : ''} <span class="ct-st ${m.cls}">${esc(m.label)}${x.r.http ? ' · HTTP ' + x.r.http : ''}</span></div>`; }).join('')}${list.length > 80 ? `<div class="muted">+${list.length - 80} more (use the CSV)</div>` : ''}</details>` : ''}</td>
             <td>${(s.policies || []).length ? (s.policies || []).map(n => `<span class="chip">${esc(n)}</span>`).join(' ') : `<span class="muted">${j.policyCheck ? 'none' : 'policy check is off'}</span>`}</td></tr>`;
         }).join('')}</tbody></table></div>`;
     }
@@ -301,6 +305,7 @@ async function viewConnTest(route) {
     $('#ctCsv').addEventListener('click', downloadCsv);
     $('#ctRerun').addEventListener('click', rerunFailed);
     $$('#ctOut [data-s][data-c]').forEach(b => b.addEventListener('click', () => detail(+b.dataset.s, +b.dataset.c)));
+    $$('#ctOut details.ct-det[data-si]').forEach(d => d.addEventListener('toggle', () => { if (d.open) T.openPods.add(+d.dataset.si); else T.openPods.delete(+d.dataset.si); }));
   }
 
   function detail(si, ci) {
