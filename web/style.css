@@ -545,3 +545,6 @@ a.ft-name { color: var(--accent); text-decoration: none; } a.ft-name:hover { tex
 .cert-line.good { color: var(--good); } .cert-line.warn { color: var(--warning); } .cert-line.crit { color: var(--critical); font-weight: 600; }
 .cert-line .muted { font-weight: 400; margin-left: auto; }
 .cert-sans { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+
+.ct-ips { font-size: 11.5px; color: var(--muted); margin-top: 2px; white-space: normal; overflow-wrap: anywhere; }
+.ct-ips.warn { color: var(--warning); } .ct-ips.crit { color: var(--critical); } .ct-ips b { font-weight: 600; }

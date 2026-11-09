@@ -210,6 +210,30 @@ async function viewConnTest(route) {
     const m = CT_STATES[s]; return `<span class="ct-chip ${m ? m.cls : 'grey'}" title="${esc(m ? m.tip : 'Waiting for the probe')}">${n} ${esc(m ? m.label : 'pending')}</span>`;
   }).join('');
 
+  // the addresses a host name resolved to, across the pods that tested it
+  function ipsFor(ci) {
+    const sets = new Map();
+    T.sources.forEach((s, si) => {
+      const r = T.res.get(rkey(si, ci));
+      if (!r || !Array.isArray(r.ips)) return;
+      const k = r.ips.join(',');
+      if (!sets.has(k)) sets.set(k, []);
+      sets.get(k).push(s);
+    });
+    if (!sets.size) return null;
+    const all = [...new Set([...sets.keys()].flatMap(k => k ? k.split(',') : []))];
+    return { all, sets, differ: sets.size > 1, none: !all.length };
+  }
+  const ipList = (ips, n = 4) => ips.slice(0, n).join(', ') + (ips.length > n ? ` +${ips.length - n}` : '');
+  function ipsNote(ci) {
+    const x = ipsFor(ci);
+    if (!x) return '';
+    if (x.none) return `<div class="ct-ips crit" title="The name returned no address inside the pods">→ no address</div>`;
+    const tip = [...x.sets.entries()].map(([k, srcs]) => `${k ? k.split(',').join(', ') : 'no address'}  ←  ${srcs.map(s => s.node || s.pod).join(', ')}`).join('\n');
+    return x.differ ? `<div class="ct-ips warn" title="${esc('Different pods got different answers:\n' + tip)}">→ ${esc(ipList(x.all))} <b>(differs by pod)</b></div>`
+      : `<div class="ct-ips" title="${esc('Resolved inside the pods: ' + x.all.join(', '))}">→ ${esc(ipList(x.all))}</div>`;
+  }
+
   function policyNote(ci) {
     if (!T.job || !T.job.policyCheck) return '';
     let blocked = 0, unknown = 0;
@@ -236,7 +260,7 @@ async function viewConnTest(route) {
         .filter(r => !T.onlyProblems || Object.keys(r.counts).some(s => !['open', 'refused', 'tls'].includes(s)) || (j.policyCheck && T.sources.some((_, si) => { const p = pv(si, r.ci); return p && p.s === 'blocked'; })));
       const shown = rows.slice(0, T.limit);
       rowsHtml = `<div class="ct-scroll"><table class="ct-matrix"><thead><tr><th class="sticky">Target</th><th>Result</th>${T.sources.map((s, si) => `<th class="src" title="${esc(`${s.pod}\nnode ${s.node}\npod IP ${s.podIP}\nhost IP ${s.hostIP}${s.hostNetwork ? '\nhost network' : ''}`)}"><span>${esc(s.node || s.pod)}</span>${s.hostNetwork ? '<small>hostNet</small>' : ''}${s.state === 'noshell' || s.state === 'notool' ? `<small>${esc(s.state)}</small>` : ''}</th>`).join('')}</tr></thead><tbody>
-        ${shown.map(r => `<tr><td class="sticky mono">${esc(r.c.label)}</td><td class="ct-verdict">${chipsHtml(r.counts)}${policyNote(r.ci)}</td>${T.sources.map((_, si) => `<td>${cellHtml(si, r.ci)}</td>`).join('')}</tr>`).join('')}
+        ${shown.map(r => `<tr><td class="sticky mono">${esc(r.c.label)}${ipsNote(r.ci)}</td><td class="ct-verdict">${chipsHtml(r.counts)}${policyNote(r.ci)}</td>${T.sources.map((_, si) => `<td>${cellHtml(si, r.ci)}</td>`).join('')}</tr>`).join('')}
         </tbody></table></div>${rows.length > shown.length ? `<div style="padding:10px"><button class="btn sm" id="ctMore">Show ${Math.min(300, rows.length - shown.length)} more of ${rows.length - shown.length}</button></div>` : ''}
         ${!rows.length ? '<div class="muted" style="padding:14px">Nothing to show with this filter.</div>' : ''}`;
     } else {
@@ -246,7 +270,7 @@ async function viewConnTest(route) {
           const bad = T.checks.map((c, ci) => ({ c, ci, r: T.res.get(rkey(si, ci)) })).filter(x => x.r && !['open', 'refused', 'tls'].includes(x.r.state));
           return `<tr><td class="sticky mono">${esc(s.pod)}${s.container ? `<div class="muted">${esc(s.container)}${s.tool ? ' · ' + esc(s.tool) : ''}</div>` : ''}</td>
             <td><div>${esc(s.node)}</div><div class="muted mono">pod ${esc(s.podIP)} · host ${esc(s.hostIP)}${s.hostNetwork ? ' · host network' : ''}</div></td>
-            <td class="ct-verdict">${chipsHtml(counts)}${bad.length ? `<details class="ct-det"><summary>${bad.length} not open</summary>${bad.slice(0, 40).map(x => `<div><button class="linkish" data-s="${si}" data-c="${x.ci}">${esc(x.c.label)}</button> ${esc((CT_STATES[x.r.state] || {}).label || x.r.state)}</div>`).join('')}${bad.length > 40 ? `<div class="muted">+${bad.length - 40} more (use the CSV)</div>` : ''}</details>` : ''}</td>
+            <td class="ct-verdict">${chipsHtml(counts)}${bad.length ? `<details class="ct-det"><summary>${bad.length} not open</summary>${bad.slice(0, 40).map(x => `<div><button class="linkish" data-s="${si}" data-c="${x.ci}">${esc(x.c.label)}</button>${Array.isArray(x.r.ips) && x.r.ips.length ? ` <span class="muted mono">(${esc(ipList(x.r.ips, 3))})</span>` : ''} ${esc((CT_STATES[x.r.state] || {}).label || x.r.state)}</div>`).join('')}${bad.length > 40 ? `<div class="muted">+${bad.length - 40} more (use the CSV)</div>` : ''}</details>` : ''}</td>
             <td>${(s.policies || []).length ? (s.policies || []).map(n => `<span class="chip">${esc(n)}</span>`).join(' ') : `<span class="muted">${j.policyCheck ? 'none' : 'policy check is off'}</span>`}</td></tr>`;
         }).join('')}</tbody></table></div>`;
     }
@@ -285,6 +309,8 @@ async function viewConnTest(route) {
     const row = (k, v) => v ? `<tr><td class="muted" style="padding-right:14px">${k}</td><td>${v}</td></tr>` : '';
     modal({ title: c.label, wide: true, body: `<table class="kv">
         ${row('Result', r ? `<span class="ct-chip ${m.cls}">${esc(m.label)}</span> ${esc(m.tip)}` : 'Waiting for the probe…')}
+        ${row('Resolved to', r && Array.isArray(r.ips) ? (r.ips.length ? `<span class="mono">${esc(r.ips.join(', '))}</span> <span class="muted">(inside this pod)</span>` : 'no address (the name did not resolve inside this pod)') : '')}
+        ${row('Connected to', r && r.via ? `<span class="mono">${esc(r.via)}</span>` : '')}
         ${row('Details', r && r.detail ? `<span class="mono">${esc(r.detail)}</span>` : '')}
         ${row('Tool', r && r.tool ? esc(r.tool) + (r.ms ? ` · ${r.ms} ms` : '') : '')}
         ${row('HTTP status', r && r.http ? r.http : '')}
@@ -303,16 +329,20 @@ async function viewConnTest(route) {
     return rows;
   }
   async function copyFirewall() {
-    const lines = failing().map(x => `SRC node=${x.s.node} hostIP=${x.s.hostIP} podIP=${x.s.podIP} pod=${x.s.pod}  ->  ${x.c.label}  ${x.r.state.toUpperCase()}${x.p && x.p.s === 'blocked' ? '  (network policy also blocks it)' : ''}`);
-    const txt = `Connectivity test from namespace ${T.job.ns} (cluster ${shortName(ctx)}), ${new Date().toISOString()}\nTimeout ${T.job.timeout}s. Failing connections:\n` + lines.join('\n');
+    const fl = failing();
+    const lines = fl.map(x => `SRC node=${x.s.node} hostIP=${x.s.hostIP} podIP=${x.s.podIP} pod=${x.s.pod}  ->  ${x.c.label}${Array.isArray(x.r.ips) && x.r.ips.length ? ` [${x.r.ips.join(', ')}]` : ''}  ${x.r.state.toUpperCase()}${x.p && x.p.s === 'blocked' ? '  (network policy also blocks it)' : ''}`);
+    const dst = [...new Set(fl.flatMap(x => Array.isArray(x.r.ips) && x.r.ips.length ? x.r.ips.map(ip => `${ip}:${x.c.port}`) : (/^[\d.]+$|:/.test(x.c.host) ? [`${x.c.host}:${x.c.port}`] : [])))];
+    const srcs = [...new Set(fl.map(x => x.s.hostIP))];
+    const txt = `Connectivity test from namespace ${T.job.ns} (cluster ${shortName(ctx)}), ${new Date().toISOString()}\nTimeout ${T.job.timeout}s. Failing connections:\n` + lines.join('\n') +
+      (dst.length ? `\n\nSource node IPs: ${srcs.join(', ')}\nDestination IP:port: ${dst.join(', ')}` : '');
     try { await navigator.clipboard.writeText(txt); toast('Copied ' + lines.length + ' line' + (lines.length === 1 ? '' : 's')); } catch { toast('Could not copy: select the text from the CSV instead', 'err'); }
   }
   function downloadCsv() {
     const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-    const rows = [['target', 'pod', 'node', 'pod_ip', 'host_ip', 'result', 'tool', 'ms', 'http', 'detail', 'policy', 'policy_detail'].map(q).join(',')];
+    const rows = [['target', 'resolved_ips', 'connected_ip', 'pod', 'node', 'pod_ip', 'host_ip', 'result', 'tool', 'ms', 'http', 'detail', 'policy', 'policy_detail'].map(q).join(',')];
     T.sources.forEach((s, si) => T.checks.forEach((c, ci) => {
       const r = T.res.get(rkey(si, ci)) || {}, p = pv(si, ci) || {};
-      rows.push([c.label, s.pod, s.node, s.podIP, s.hostIP, r.state || 'pending', r.tool, r.ms, r.http, r.detail, p.s, p.w].map(q).join(','));
+      rows.push([c.label, Array.isArray(r.ips) ? r.ips.join(' ') : '', r.via, s.pod, s.node, s.podIP, s.hostIP, r.state || 'pending', r.tool, r.ms, r.http, r.detail, p.s, p.w].map(q).join(','));
     }));
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([rows.join('\n')], { type: 'text/csv' }));

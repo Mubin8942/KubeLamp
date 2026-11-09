@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -314,18 +315,42 @@ if have nc && nc -h 2>&1 | grep -q -- -z; then NCO="-zv"; fi
 now(){ s=$(date +%s%N 2>/dev/null); case $s in *N|'') echo $(( $(date +%s)*1000 ));; *) echo $(( s/1000000 ));; esac; }
 probe(){
   t0=$(now); tool=none; rc=0; out=
-  if [ "$2" = http ] && have curl; then tool=curl; out=$($TO curl -sS -o /dev/null -w '%{http_code} %{time_connect}' --connect-timeout "$T" -m $((T*2)) "$5" 2>&1); rc=$?
+  if [ "$2" = http ] && have curl; then tool=curl; out=$($TO curl -sS -o /dev/null -w '%{http_code} %{time_connect} %{remote_ip}' --connect-timeout "$T" -m $((T*2)) "$5" 2>&1); rc=$?
   elif [ "$2" = http ] && have wget; then tool=wget; out=$($TO wget -S -q -T "$T" -t 1 -O /dev/null "$5" 2>&1); rc=$?
   elif have nc; then tool=nc; out=$($TO nc $NCO -w "$T" "$3" "$4" </dev/null 2>&1); rc=$?
   elif have bash; then tool=bash; out=$($TO bash -c 'exec 3<>"/dev/tcp/$0/$1"' "$3" "$4" 2>&1); rc=$?
-  elif have curl; then tool=curl; out=$($TO curl -sS -o /dev/null -w '%{http_code} %{time_connect}' --connect-timeout "$T" -m $((T*2)) "http://$3:$4/" </dev/null 2>&1); rc=$?
+  elif have curl; then tool=curl; out=$($TO curl -sS -o /dev/null -w '%{http_code} %{time_connect} %{remote_ip}' --connect-timeout "$T" -m $((T*2)) "http://$3:$4/" </dev/null 2>&1); rc=$?
   elif have wget; then tool=wget; out=$($TO wget -q -T "$T" -t 1 -O /dev/null "http://$3:$4/" 2>&1); rc=$?
   fi
   out=$(printf '%s' "$out" | tr '\n|\r' '   ' | cut -c1-240)
   printf '@@r|%s|%s|%s|%s|%s\n' "$1" "$tool" "$rc" $(( $(now)-t0 )) "$out"
 }
 one(){ IFS='|'; set -- $1; IFS=' '; probe "$1" "$2" "$3" "$4" "$5"; }
+hostof(){ IFS='|'; set -- $1; IFS=' '; printf '%s' "$3"; }
+isip(){ case $1 in *:*) return 0;; *[!0-9.]*) return 1;; *) return 0;; esac; }
+# resolve each host name once, inside the pod (so the answer is what the application gets)
+res(){
+  rt=none; ro=
+  if have getent; then rt=getent; ro=$($TO getent ahosts "$1" 2>&1)
+  elif have nslookup; then rt=nslookup; ro=$($TO nslookup "$1" 2>&1)
+  elif have dig; then rt=dig; ro=$($TO dig +short +time="$T" +tries=1 "$1" A 2>&1)
+  elif have host; then rt=host; ro=$($TO host -W "$T" "$1" 2>&1)
+  fi
+  [ "$rt" = none ] && return 0
+  printf '@@ip|%s|%s|%s\n' "$1" "$rt" "$(printf '%s' "$ro" | head -n 40 | tr '\n|' '\t ')"
+}
 echo "@@tools|$(for t in nc curl wget bash; do have $t && printf '%s ' $t; done)"
+seen=' '; n=0
+for c in "$@"; do
+  h=$(hostof "$c")
+  if [ -z "$h" ] || isip "$h"; then continue; fi
+  case "$seen" in *" $h "*) continue;; esac
+  seen="$seen$h "
+  res "$h" &
+  n=$((n+1))
+  if [ "$n" -ge "$P" ]; then wait; n=0; fi
+done
+wait
 n=0
 for c in "$@"; do
   one "$c" &
@@ -374,10 +399,39 @@ func parseProbeOutput(out string) (lines []probeLine, tools string, ended bool) 
 	return
 }
 
+// parseProbeIPs reads the "@@ip|host|tool|output" lines: the addresses each host name resolved
+// to inside the pod.
+func parseProbeIPs(out string) map[string][]string {
+	m := map[string][]string{}
+	for _, ln := range strings.Split(out, "\n") {
+		ln = strings.TrimRight(ln, "\r")
+		if !strings.HasPrefix(ln, "@@ip|") {
+			continue
+		}
+		f := strings.SplitN(ln, "|", 4)
+		if len(f) < 4 || f[1] == "" {
+			continue
+		}
+		var lines []string
+		for _, l := range strings.Split(f[3], "\t") {
+			if strings.TrimSpace(l) != "" {
+				lines = append(lines, l)
+			}
+		}
+		ips, _ := parseDNSAnswer(f[2], lines)
+		sort.Strings(ips)
+		if ips == nil {
+			ips = []string{}
+		}
+		m[f[1]] = ips
+	}
+	return m
+}
+
 // ---------------------------------------------------------------- classification
 
 var (
-	httpCodeRE  = regexp.MustCompile(`(\d{3}) (\d+\.\d+)\s*$`)
+	httpCodeRE  = regexp.MustCompile(`(\d{3}) (\d+\.\d+)(?: ([0-9A-Fa-f:.]*))?\s*$`)
 	wgetCodeRE  = regexp.MustCompile(`HTTP/\d(?:\.\d)? (\d{3})`)
 	dnsTokens   = []string{"bad address", "could not resolve", "name or service not known", "unknown host", "does not resolve", "nodename nor servname", "temporary failure in name resolution", "no address associated", "getaddrinfo", "name does not resolve", "host not found"}
 	unreachToks = []string{"no route to host", "network is unreachable", "host is unreachable", "host is down", "unreachable"}
@@ -483,6 +537,10 @@ type ConnResult struct {
 	Tool   string `json:"tool,omitempty"`
 	HTTP   int    `json:"http,omitempty"`
 	Detail string `json:"detail,omitempty"`
+	// for host names: the addresses the name resolved to inside this pod (empty: did not
+	// resolve; absent: an IP target or no resolver tool), and the address curl connected to
+	IPs []string `json:"ips"` // null: IP target or not resolved; []: no address
+	Via string   `json:"via,omitempty"`
 }
 
 type ConnJob struct {
@@ -717,7 +775,13 @@ func (j *ConnJob) runSource(ctx context.Context, c *Cluster, si int) {
 			for _, ck := range b {
 				args = append(args, connArg(ck))
 			}
-			per := (len(b)+j.Parallel-1)/j.Parallel*(j.Timeout*2+3) + 10
+			names := map[string]bool{}
+			for _, ck := range b {
+				if net.ParseIP(ck.Host) == nil {
+					names[ck.Host] = true
+				}
+			}
+			per := (len(b)+j.Parallel-1)/j.Parallel*(j.Timeout*2+3) + (len(names)+j.Parallel-1)/j.Parallel*(j.Timeout+4) + 10
 			if per > 300 {
 				per = 300
 			}
@@ -739,6 +803,7 @@ func (j *ConnJob) runSource(ctx context.Context, c *Cluster, si int) {
 				break
 			}
 			lines, _, _ := parseProbeOutput(out)
+			resolved := parseProbeIPs(out)
 			if bi == 0 && len(lines) > 0 && lines[0].Tool == "none" {
 				noTool = true
 				next = true
@@ -747,7 +812,19 @@ func (j *ConnJob) runSource(ctx context.Context, c *Cluster, si int) {
 			got := map[int]bool{}
 			for _, l := range lines {
 				st, code, d := classifyProbe(checkMode(j.Checks, l.ID), l.Tool, l.RC, l.MS, timeoutMs, l.Msg)
-				res = append(res, ConnResult{Src: si, Check: l.ID, State: st, Ms: l.MS, Tool: l.Tool, HTTP: code, Detail: d})
+				cr := ConnResult{Src: si, Check: l.ID, State: st, Ms: l.MS, Tool: l.Tool, HTTP: code, Detail: d}
+				if l.ID >= 0 && l.ID < len(j.Checks) {
+					if ips, ok := resolved[j.Checks[l.ID].Host]; ok {
+						cr.IPs = ips
+						if ips == nil {
+							cr.IPs = []string{}
+						}
+					}
+				}
+				if m := httpCodeRE.FindStringSubmatch(l.Msg); m != nil && l.Tool == "curl" && net.ParseIP(m[3]) != nil {
+					cr.Via = m[3]
+				}
+				res = append(res, cr)
 				got[l.ID] = true
 			}
 			for _, ck := range b {

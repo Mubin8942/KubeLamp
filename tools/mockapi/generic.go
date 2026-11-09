@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -704,6 +705,33 @@ func (c *cluster) serveConnExec(w http.ResponseWriter, r *http.Request, ns, pod 
 	} else {
 		sb.WriteString("@@tools|nc curl \n")
 	}
+	// host names are resolved first (like the real script): www.split.example differs on the 3rd node
+	seenHost := map[string]bool{}
+	mockIP := func(h string) string {
+		n := 0
+		for _, ch := range h {
+			n = (n*31 + int(ch)) % 64000
+		}
+		return fmt.Sprintf("203.0.%d.%d", n/250%250, n%250+1)
+	}
+	if deploy != "ledger-worker" {
+		for _, a := range cmd[6:] {
+			h := strings.SplitN(a, "|", 5)[2]
+			if net.ParseIP(h) != nil || seenHost[h] {
+				continue
+			}
+			seenHost[h] = true
+			switch {
+			case strings.HasSuffix(h, ".invalid") || h == "blocked.example":
+				sb.WriteString("@@ip|" + h + "|getent|\n")
+			case h == "www.split.example" && blocked:
+				sb.WriteString("@@ip|" + h + "|getent|198.51.100.77   STREAM " + h + "\t198.51.100.77   DGRAM \n")
+			default:
+				ip := mockIP(h)
+				sb.WriteString("@@ip|" + h + "|getent|" + ip + "   STREAM " + h + "\t" + ip + "   DGRAM \t" + mockIP(h+"2") + "   STREAM \n")
+			}
+		}
+	}
 	for _, a := range cmd[6:] {
 		f := strings.SplitN(a, "|", 5)
 		id, mode, host := f[0], f[1], f[2]
@@ -727,7 +755,11 @@ func (c *cluster) serveConnExec(w http.ResponseWriter, r *http.Request, ns, pod 
 				line("nc", 1, tmo*1000, "nc: connect to "+host+" port "+f[3]+" (tcp) timed out: Operation now in progress")
 			}
 		case mode == "http":
-			line("curl", 0, 40, "200 0.012000")
+			via := host
+			if net.ParseIP(host) == nil {
+				via = mockIP(host)
+			}
+			line("curl", 0, 40, "200 0.012000 "+via)
 		case port == 23:
 			line("nc", 1, 3, "nc: connect to "+host+" port 23 (tcp) failed: Connection refused")
 		case port == 24:

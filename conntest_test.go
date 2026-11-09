@@ -333,3 +333,72 @@ func TestCiliumOnlyDenyDoesNotRestrict(t *testing.T) {
 		t.Errorf("explicit deny: %s", v.State)
 	}
 }
+
+// Host names are resolved inside the pod before probing; curl reports the address it used.
+func TestProbeScriptResolvesNames(t *testing.T) {
+	if _, err := exec.LookPath("getent"); err != nil {
+		if _, err := exec.LookPath("nslookup"); err != nil {
+			t.Skip("no resolver tool on this machine")
+		}
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_, _ = c.Write([]byte("HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n"))
+			c.Close()
+		}
+	}()
+	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
+	args := []string{"-c", probeScript, "sh", "2", "4",
+		"0|tcp|localhost|" + port + "|",
+		"1|tcp|localhost|1|", // same name again: resolved once
+		"2|tcp|no-such-host.invalid|443|",
+		"3|tcp|127.0.0.1|" + port + "|", // IP target: not resolved
+		"4|http|localhost|" + port + "|http://127.0.0.1:" + port + "/",
+	}
+	out, _ := exec.Command("sh", args...).CombinedOutput()
+	ips := parseProbeIPs(string(out))
+	if n := strings.Count(string(out), "@@ip|localhost|"); n != 1 {
+		t.Errorf("localhost resolved %d times:\n%s", n, out)
+	}
+	if !contains(ips["localhost"], "127.0.0.1") && !contains(ips["localhost"], "::1") {
+		t.Errorf("localhost: %v\n%s", ips, out)
+	}
+	if v, ok := ips["no-such-host.invalid"]; !ok || len(v) != 0 {
+		t.Errorf("unresolvable name should be present with no addresses: %v", ips)
+	}
+	if _, ok := ips["127.0.0.1"]; ok {
+		t.Error("IP targets must not be resolved")
+	}
+	if _, err := exec.LookPath("curl"); err == nil {
+		lines, _, _ := parseProbeOutput(string(out))
+		for _, l := range lines {
+			if l.ID == 4 {
+				if m := httpCodeRE.FindStringSubmatch(l.Msg); m == nil || m[1] != "200" || m[3] != "127.0.0.1" {
+					t.Errorf("curl remote ip: %q", l.Msg)
+				}
+			}
+		}
+	}
+}
+
+func TestParseProbeIPs(t *testing.T) {
+	out := "@@ip|a.example.com|getent|10.0.0.2       STREAM a.example.com\t10.0.0.2       DGRAM \t10.0.0.1  STREAM \n" +
+		"@@ip|b.example.com|nslookup|Server:\t\t10.96.0.10\tAddress:\t10.96.0.10:53\t\tName:\tb.example.com\tAddress: 203.0.113.9\n" +
+		"@@ip|c.invalid|getent|\n@@ip||getent|x\n"
+	m := parseProbeIPs(out)
+	if strings.Join(m["a.example.com"], ",") != "10.0.0.1,10.0.0.2" || strings.Join(m["b.example.com"], ",") != "203.0.113.9" {
+		t.Errorf("%v", m)
+	}
+	if v, ok := m["c.invalid"]; !ok || len(v) != 0 || len(m) != 3 {
+		t.Errorf("%v", m)
+	}
+}

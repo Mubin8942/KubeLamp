@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -158,5 +159,72 @@ func TestConnJobAgainstMock(t *testing.T) {
 	}
 	if job["state"] != "cancelled" {
 		t.Errorf("state after cancel: %v", job["state"])
+	}
+}
+
+func TestConnJobResolvedIPs(t *testing.T) {
+	ts, _ := startMockServers(t, nil)
+	code, m := postJSON(t, ts.URL, "/api/tools/conntest?ctx=prod-dc1", map[string]any{"ns": "payments", "podMode": "per-node",
+		"targets": "www.example.com, www.split.example, nothing.invalid, 172.18.1.33, https://api.example.com/health", "ports": "22", "policyCheck": false, "timeout": 2})
+	if code != 200 {
+		t.Fatalf("start: %d %v", code, m)
+	}
+	id := m["id"].(string)
+	var job map[string]any
+	for i := 0; i < 100; i++ {
+		r, err := http.Get(ts.URL + "/api/tools/conntest/" + id + "?full=1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		job = nil
+		_ = json.NewDecoder(r.Body).Decode(&job)
+		r.Body.Close()
+		if job["state"] == "done" {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	checks := job["checks"].([]any)
+	host := func(ci int) string { return checks[ci].(map[string]any)["host"].(string) }
+	answers := map[string]map[string]bool{}
+	var via string
+	for _, x := range job["results"].([]any) {
+		r := x.(map[string]any)
+		h := host(int(r["check"].(float64)))
+		if r["state"] == "notool" || r["state"] == "noshell" {
+			continue
+		}
+		ips, isList := r["ips"].([]any)
+		if answers[h] == nil {
+			answers[h] = map[string]bool{}
+		}
+		switch {
+		case !isList:
+			answers[h]["<none>"] = true
+		default:
+			var s []string
+			for _, ip := range ips {
+				s = append(s, ip.(string))
+			}
+			answers[h][strings.Join(s, ",")] = true
+		}
+		if h == "api.example.com" && r["via"] != nil {
+			via = r["via"].(string)
+		}
+	}
+	if len(answers["www.example.com"]) != 1 || answers["www.example.com"][""] || answers["www.example.com"]["<none>"] {
+		t.Errorf("www.example.com: %v", answers["www.example.com"])
+	}
+	if len(answers["www.split.example"]) != 2 {
+		t.Errorf("www.split.example should differ between nodes: %v", answers["www.split.example"])
+	}
+	if !answers["nothing.invalid"][""] || len(answers["nothing.invalid"]) != 1 {
+		t.Errorf("nothing.invalid should resolve to no address: %v", answers["nothing.invalid"])
+	}
+	if !answers["172.18.1.33"]["<none>"] || len(answers["172.18.1.33"]) != 1 {
+		t.Errorf("IP targets carry no resolved addresses: %v", answers["172.18.1.33"])
+	}
+	if !strings.HasPrefix(via, "203.0.") {
+		t.Errorf("curl connected address for the URL target: %q", via)
 	}
 }
