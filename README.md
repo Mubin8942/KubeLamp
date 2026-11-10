@@ -18,6 +18,8 @@ Point it at your kubeconfig and you get one web app for all your contexts. You c
 
 ## Features
 
+**Collapsible sidebar:** *Collapse sidebar* at the bottom of the sidebar shrinks it to a slim rail of section icons, each opening its pages in a flyout, for more room on wide tables and charts. The choice is remembered.
+
 **Every cluster at a glance:** health, versions, nodes, pods, Deployments, warnings, and CPU and memory against capacity or quota.
 
 **Metrics:**
@@ -46,7 +48,17 @@ Lists show the same columns as `kubectl get`, including CRD printer columns. A *
 - **Local shell:** your own login shell in a real terminal, with `kubectl` preset to the cluster you're viewing, so `kubectl get pods`, `kubectl exec -it`, `kubectl edit` and k9s all work. The context switch applies only to that shell and never changes your kubeconfig. The local shell works on macOS and Linux.
 - **Tabs:** several sessions at once, and they stay open while you browse other pages.
 
-**Namespaces that need attention** (Cluster → Namespaces): for each namespace, only what needs a human, worst first.
+**Namespace overview** (Namespace → Overview): a dashboard for one namespace, with every namespace listed on the left (health dot, pod count, search) so you can switch with one click. It shows:
+- **Health:** what needs attention (failing pods, unhealthy workloads, full volumes, recent warnings), or a "healthy" note.
+- **Tiles:** pods, workloads, CPU and memory (against the ResourceQuota when there is one), restarts and warning events.
+- **Charts:** CPU and memory for the last hour.
+- **Lists:** workloads, top pods, pods needing attention, the nodes the pods run on, recent events.
+- **Objects:** Services, Ingresses, ConfigMaps, Secrets, volume claims, Jobs and more, counted from metadata only. Click a count to open the list filtered to that namespace.
+- **Storage and quotas:** volume claims with their usage, and ResourceQuotas with used/hard bars.
+
+Choosing a namespace in the top namespace picker opens its overview.
+
+**Namespace health** (Namespace → Health): for each namespace, only what needs a human, worst first.
 - **Pods:** crash-looping, pending or not-ready pods, and pods that restarted in the last hour.
 - **Workloads:** Deployments, StatefulSets and DaemonSets with unavailable replicas.
 - **Storage:** volume claims at 80% or more (critical at 90%), and claims that are pending or lost.

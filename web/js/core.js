@@ -122,10 +122,14 @@ function lineChart(el, { t, series, refs = [], fmt }) {
     el.innerHTML = `<svg>${g}<text class="collect" x="${m.l + iw / 2}" y="${m.t + ih / 2}" text-anchor="middle">Collecting data — collecting history</text></svg>`;
     return;
   }
-  const n = 5;
+  // time labels: fewer when the history is short, and never the same minute twice
+  const n = Math.max(1, Math.min(5, Math.floor((x1 - x0) / 60)));
+  let lastLbl = '';
   for (let i = 0; i <= n; i++) {
-    const tv = x0 + (x1 - x0) * i / n;
-    g += `<text class="tick" x="${X(tv)}" y="${H - 5}" text-anchor="${i === 0 ? 'start' : i === n ? 'end' : 'middle'}">${hhmm(tv)}</text>`;
+    const tv = x0 + (x1 - x0) * i / n, lbl = hhmm(tv);
+    if (lbl === lastLbl) continue;
+    lastLbl = lbl;
+    g += `<text class="tick" x="${X(tv)}" y="${H - 5}" text-anchor="${i === 0 ? 'start' : i === n ? 'end' : 'middle'}">${lbl}</text>`;
   }
   let above = 0;
   const placed = [];
@@ -287,7 +291,7 @@ function confirmDanger(title, message, label = 'Delete') {
 const pop = $('#pop');
 let popAnchor = null;
 function closePop() { pop.hidden = true; popAnchor = null; }
-function openPop(anchor, items, { search = false, placeholder = 'Filter…' } = {}) {
+function openPop(anchor, items, { search = false, placeholder = 'Filter…', side = '', title = '' } = {}) {
   if (popAnchor === anchor) { closePop(); return; }
   popAnchor = anchor;
   const render = (q = '') => {
@@ -297,13 +301,19 @@ function openPop(anchor, items, { search = false, placeholder = 'Filter…' } = 
       || '<div class="muted" style="padding:8px 10px">No matches</div>';
     $$('.opt', pop).forEach(b => b.addEventListener('click', () => { const it = items[+b.dataset.i]; closePop(); it.run && it.run(); }));
   };
-  pop.innerHTML = (search ? `<input type="search" placeholder="${esc(placeholder)}" spellcheck="false">` : '') + '<div class="opts"></div>';
+  pop.innerHTML = (title ? `<div class="pop-title">${esc(title)}</div>` : '') + (search ? `<input type="search" placeholder="${esc(placeholder)}" spellcheck="false">` : '') + '<div class="opts"></div>';
   render();
   pop.hidden = false;
   const r = anchor.getBoundingClientRect(), pr = pop.getBoundingClientRect();
-  pop.style.top = Math.min(r.bottom + 6, innerHeight - pr.height - 8) + 'px';
-  pop.style.left = Math.max(8, Math.min(r.left, innerWidth - pr.width - 8)) + 'px';
-  if (r.right > innerWidth - 240) pop.style.left = Math.max(8, r.right - pr.width) + 'px';
+  if (side === 'right') { // flyout next to the collapsed sidebar
+    pop.style.top = Math.max(8, Math.min(r.top - 4, innerHeight - pr.height - 8)) + 'px';
+    const sr = $('#side').getBoundingClientRect();
+    pop.style.left = Math.max(r.right + 8, sr.right + 6) + 'px';
+  } else {
+    pop.style.top = Math.min(r.bottom + 6, innerHeight - pr.height - 8) + 'px';
+    pop.style.left = Math.max(8, Math.min(r.left, innerWidth - pr.width - 8)) + 'px';
+    if (r.right > innerWidth - 240) pop.style.left = Math.max(8, r.right - pr.width) + 'px';
+  }
   if (search) {
     const inp = $('input', pop);
     inp.focus();

@@ -447,6 +447,7 @@ func (s *Server) routes() http.Handler {
 	s.terminalRoutes(mux)
 	s.pvcRoutes(mux)
 	s.overviewRoutes(mux)
+	s.nsDashRoutes(mux)
 	s.connRoutes(mux)
 	s.ftRoutes(mux)
 	s.dnsRoutes(mux)

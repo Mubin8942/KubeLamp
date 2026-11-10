@@ -25,14 +25,17 @@ function loadNs(ctx) {
 function setNs(ctx, ns) {
   S.ns = ns;
   try { localStorage.setItem('kd.ns.' + ctx, ns); } catch {}
-  renderTop(parseRoute());
+  const r = parseRoute();
+  renderTop(r);
+  if (r.section === 'nsview' && ns) { location.hash = `${ctxPath(ctx)}/nsview/${enc(ns)}`; return; }
   navigate();
 }
 
 // ------------------------------------------------------------------ navigation model
 // [label, target] — target is a dashboard section, or [group, resource] for any API type
 const NAV = [
-  ['Cluster', [['Overview', 'overview'], ['Nodes', 'nodes'], ['Namespaces', 'namespaces'], ['Events', 'events']]],
+  ['Cluster', [['Overview', 'overview'], ['Nodes', 'nodes'], ['Events', 'events']]],
+  ['Namespace', [['Overview', 'nsview'], ['Health', 'namespaces']]],
   ['Workloads', [['Deployments', 'wl:Deployment'], ['StatefulSets', 'wl:StatefulSet'], ['DaemonSets', 'wl:DaemonSet'], ['Pods', 'pods'],
     ['Jobs', ['batch', 'jobs']], ['CronJobs', ['batch', 'cronjobs']], ['ReplicaSets', ['apps', 'replicasets']],
     ['Autoscalers', ['autoscaling', 'horizontalpodautoscalers']], ['Pod disruption budgets', ['policy', 'poddisruptionbudgets']], ['Deployment logs', 'logs']]],
@@ -56,14 +59,21 @@ const BUILTIN_GROUPS = new Set(['', 'apps', 'batch', 'autoscaling', 'policy', 'n
 function navClosed(label) { try { return localStorage.getItem('kd.nav.' + label) === '0'; } catch { return false; } }
 function setNavClosed(label, closed) { try { localStorage.setItem('kd.nav.' + label, closed ? '0' : '1'); } catch {} }
 
-function renderNav(route) {
-  const nav = $('#nav');
-  if (!route.ctx) {
-    nav.innerHTML = `<a class="nav-a on" href="#/">All clusters</a><div class="nav-h" style="cursor:default">Clusters</div>` +
-      (S.clusters.map(c => `<a class="nav-a" href="${ctxPath(c.name)}/overview" title="${esc(c.name)}"><i class="dot ${c.status}"></i><span class="n">${esc(shortName(c.name))}</span>${c.scope === 'namespaced' ? '<span class="tag" title="Role/RoleBinding access">ns</span>' : ''}</a>`).join('')
-        || '<div class="muted" style="padding:6px 10px">No contexts loaded</div>');
-    return;
-  }
+const NAV_ICON = {
+  'All clusters': '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
+  Cluster: '<rect x="3.5" y="4" width="17" height="7" rx="2"/><rect x="3.5" y="13" width="17" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
+  Namespace: '<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M3.5 9.5h17"/>',
+  Workloads: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/>',
+  Network: '<circle cx="12" cy="5.5" r="2"/><circle cx="5.5" cy="18.5" r="2"/><circle cx="18.5" cy="18.5" r="2"/><path d="M12 7.5V12m0 0l-5 5m5-5l5 5"/>',
+  Config: '<path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/>',
+  Storage: '<ellipse cx="12" cy="6" rx="7" ry="2.5"/><path d="M5 6v12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V6M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5"/>',
+  Access: '<path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/><path d="M9.5 12l2 2 3.5-3.5"/>',
+  'Custom resources': '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M12 8v8M8 12h8"/>',
+};
+const railIcon = label => `<svg viewBox="0 0 24 24">${NAV_ICON[label] || NAV_ICON['Custom resources']}</svg>`;
+
+// the navigation as data: [{ label, items: [{ label, href, on, sub }] }], shared by the full sidebar and the rail
+function navModel(route) {
   const ctx = route.ctx;
   const disc = S.disc[ctx];
   const has = (g, r) => !disc || disc.resources.some(x => x.group === g && x.resource === r);
@@ -71,32 +81,52 @@ function renderNav(route) {
   const item = (label, target) => {
     let href, key;
     if (Array.isArray(target)) {
-      if (!has(target[0], target[1])) return '';
+      if (!has(target[0], target[1])) return null;
       href = listHref(ctx, target[0], target[1]); key = `r:${target[0]}/${target[1]}`;
     } else if (target.startsWith('wl:')) {
       href = `${ctxPath(ctx)}/workloads?kind=${target.slice(3)}`; key = target;
     } else { href = `${ctxPath(ctx)}/${target}`; key = target; }
     const on = key === cur || (route.section === 'wl' && key === 'wl:' + route.args[0]) || (route.section === 'node' && key === 'nodes') || (route.section === 'pod' && key === 'pods')
       || (route.section === 'o' && key === `r:${gv(route.args[0])}/${route.args[1]}`);
-    return `<a class="nav-a ${on ? 'on' : ''}" href="${href}"><span class="n">${esc(label)}</span></a>`;
+    return { label, href, on };
   };
-  const group = (label, body) => {
-    if (!body.trim()) return '';
-    const closed = navClosed(label);
-    return `<button class="nav-h ${closed ? 'closed' : ''}" data-g="${esc(label)}"><svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></svg>${esc(label)}</button><div class="nav-sub" ${closed ? 'hidden' : ''}>${body}</div>`;
-  };
-  let html = `<a class="nav-a nav-back" href="#/"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 6l-6 6 6 6"/></svg>All clusters</a>`;
-  NAV.forEach(([label, items]) => { html += group(label, items.map(([l, t]) => item(l, t)).join('')); });
+  const groups = NAV.map(([label, items]) => ({ label, items: items.map(([l, t]) => item(l, t)).filter(Boolean) }));
   // custom resources: everything else the cluster serves, grouped by API group
   if (disc) {
     const known = new Set(NAV.flatMap(([, items]) => items.filter(([, t]) => Array.isArray(t)).map(([, t]) => t.join('/'))));
     const crds = disc.resources.filter(r => !BUILTIN_GROUPS.has(r.group) && !known.has(r.group + '/' + r.resource));
     const byGroup = {};
     crds.forEach(r => (byGroup[r.group] = byGroup[r.group] || []).push(r));
-    const body = Object.keys(byGroup).sort().map(g => `<div class="muted" style="font-size:11.5px;padding:8px 10px 2px" title="${esc(g)}">${esc(g)}</div>` +
-      byGroup[g].map(r => item(plural(r), [r.group, r.resource])).join('')).join('');
-    html += group('Custom resources', body);
+    const items = [];
+    Object.keys(byGroup).sort().forEach(g => {
+      items.push({ head: g });
+      byGroup[g].forEach(r => { const it = item(plural(r), [r.group, r.resource]); if (it) items.push(it); });
+    });
+    groups.push({ label: 'Custom resources', items });
   }
+  return groups.filter(g => g.items.some(i => !i.head));
+}
+
+function renderNav(route) {
+  const nav = $('#nav'), rail = $('#rail');
+  if (!route.ctx) {
+    nav.innerHTML = `<a class="nav-a on" href="#/">All clusters</a><div class="nav-h" style="cursor:default">Clusters</div>` +
+      (S.clusters.map(c => `<a class="nav-a" href="${ctxPath(c.name)}/overview" title="${esc(c.name)}"><i class="dot ${c.status}"></i><span class="n">${esc(shortName(c.name))}</span>${c.scope === 'namespaced' ? '<span class="tag" title="Role/RoleBinding access">ns</span>' : ''}</a>`).join('')
+        || '<div class="muted" style="padding:6px 10px">No contexts loaded</div>');
+    rail.innerHTML = `<a class="rail-b on" href="#/" title="All clusters">${railIcon('All clusters')}</a><div class="rail-sep"></div>` +
+      S.clusters.map(c => `<a class="rail-b" href="${ctxPath(c.name)}/overview" title="${esc(shortName(c.name))}"><b style="font-size:12px;font-weight:600">${esc(shortName(c.name).replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase())}</b><i class="dot ${c.status}"></i></a>`).join('');
+    return;
+  }
+  const groups = navModel(route);
+  const group = (label, body) => {
+    const closed = navClosed(label);
+    return `<button class="nav-h ${closed ? 'closed' : ''}" data-g="${esc(label)}"><svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></svg>${esc(label)}</button><div class="nav-sub" ${closed ? 'hidden' : ''}>${body}</div>`;
+  };
+  let html = `<a class="nav-a nav-back" href="#/"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 6l-6 6 6 6"/></svg>All clusters</a>`;
+  groups.forEach(g => {
+    html += group(g.label, g.items.map(i => i.head ? `<div class="muted" style="font-size:11.5px;padding:8px 10px 2px" title="${esc(i.head)}">${esc(i.head)}</div>`
+      : `<a class="nav-a ${i.on ? 'on' : ''}" href="${i.href}"><span class="n">${esc(i.label)}</span></a>`).join(''));
+  });
   nav.innerHTML = html;
   $$('.nav-h', nav).forEach(h => h.addEventListener('click', () => {
     const closed = !h.classList.contains('closed');
@@ -104,7 +134,29 @@ function renderNav(route) {
     h.nextElementSibling.hidden = closed;
     setNavClosed(h.dataset.g, closed);
   }));
+  // collapsed rail: one icon per section, its pages in a flyout
+  rail.innerHTML = `<a class="rail-b" href="#/" title="All clusters">${railIcon('All clusters')}</a><div class="rail-sep"></div>` +
+    groups.map((g, gi) => `<button class="rail-b ${g.items.some(i => i.on) ? 'on' : ''}" type="button" data-gi="${gi}" title="${esc(g.label)}">${railIcon(g.label)}</button>`).join('');
+  $$('.rail-b[data-gi]', rail).forEach(b => b.addEventListener('click', () => {
+    const g = groups[+b.dataset.gi];
+    openPop(b, g.items.filter(i => !i.head).map(i => ({ label: i.label, on: i.on, run: () => { location.hash = i.href; } })),
+      { side: 'right', title: g.label, search: g.items.length > 14, placeholder: 'Filter ' + g.label.toLowerCase() });
+  }));
 }
+
+// collapse / expand the sidebar; remembered in this browser
+function setSideMin(min) {
+  document.body.classList.toggle('side-min', min);
+  try { localStorage.setItem('kd.side.min', min ? '1' : ''); } catch {}
+  const t = $('#sideTog');
+  t.title = min ? 'Expand sidebar' : 'Collapse sidebar';
+  $('span', t).textContent = min ? 'Expand sidebar' : 'Collapse sidebar';
+  $('#sideTogArrow').setAttribute('d', min ? 'M13.5 10l2 2-2 2' : 'M15.5 10l-2 2 2 2');
+  closePop();
+  requestAnimationFrame(() => { S.redraw && S.redraw(); window.dispatchEvent(new Event('resize')); });
+}
+$('#sideTog').addEventListener('click', () => setSideMin(!document.body.classList.contains('side-min')));
+try { if (localStorage.getItem('kd.side.min') === '1') setSideMin(true); } catch {}
 
 // ------------------------------------------------------------------ top bar
 function renderTop(route) {
@@ -117,7 +169,7 @@ function renderTop(route) {
 }
 $('#ctxPicker').addEventListener('click', () => {
   const route = parseRoute();
-  const section = route.ctx && ['overview', 'nodes', 'workloads', 'pods', 'events', 'logs'].includes(route.section) ? route.section : route.section === 'tools' ? 'tools/' + (route.args[0] || '') : 'overview';
+  const section = route.ctx && ['overview', 'nodes', 'workloads', 'pods', 'events', 'logs', 'namespaces', 'nsview'].includes(route.section) ? route.section : route.section === 'tools' ? 'tools/' + (route.args[0] || '') : 'overview';
   openPop($('#ctxPicker'), [{ label: 'All clusters', on: !route.ctx, run: () => { location.hash = '#/'; } }, 'sep',
     ...S.clusters.map(c => ({
       label: shortName(c.name), on: c.name === route.ctx, icon: `<i class="dot ${c.status}"></i>`,
@@ -163,7 +215,7 @@ async function navigate() {
   renderTop(route);
   renderNav(route);
   if (route.ctx && !S.disc[route.ctx]) ensureDiscovery(route.ctx).then(() => { if (parseRoute().ctx === route.ctx) renderNav(parseRoute()); });
-  const views = { overview: viewOverview, nodes: viewNodes, node: viewNode, workloads: viewWorkloads, wl: viewWorkload, pods: viewPods, namespaces: viewNamespaces, tools: viewTools,
+  const views = { overview: viewOverview, nodes: viewNodes, node: viewNode, workloads: viewWorkloads, wl: viewWorkload, pods: viewPods, namespaces: viewNamespaces, nsview: viewNsOverview, tools: viewTools,
     pod: viewPod, events: viewEvents, logs: viewLogs, r: viewResource, o: viewObject };
   main.scrollTop = 0;
   try {

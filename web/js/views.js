@@ -151,6 +151,12 @@ async function viewHome() {
 }
 
 // ------------------------------------------------------------------ cluster header
+// a long namespace list: the first 12, then "+N more" that expands in place
+function nsListHtml(list, max = 12) {
+  const b = l => `<b class="nslist">${esc(l.join(', '))}</b>`;
+  if (list.length <= max) return b(list);
+  return `${b(list.slice(0, max))}<span class="ns-rest" hidden><b>, ${esc(list.slice(max).join(', '))}</b></span> <button class="ns-more" type="button" onclick="this.previousElementSibling.hidden=false;this.remove()">+${list.length - max} more</button>`;
+}
 function clusterHead(sum, title, crumbs = '') {
   const c = sum;
   return `<div class="page-head"><div>${crumbs}<h1>${esc(title)}</h1>
@@ -158,7 +164,7 @@ function clusterHead(sum, title, crumbs = '') {
     ${c.version ? `<span>${esc(c.version)}</span>` : ''}<span class="mono">${esc(c.server)}</span><span>${esc(c.authType)}</span>
     <span class="muted" id="updated">updated ${c.at ? age(c.at) + ' ago' : '—'}</span></div></div>
     <div class="right"><button class="btn" id="accessBtn" title="Cluster-wide or namespace-scoped (Role/RoleBinding) access"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>${esc(isNs(c) ? 'Namespaces: ' + (c.scopeNamespaces || []).length : 'Access')}</button><button class="btn" id="refreshBtn"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>Refresh</button></div></div>
-    ${isNs(c) ? `<div class="banner info"><b>Namespace-scoped.</b><span>Your credentials have Role/RoleBinding access, so KubeLamp shows only <b>${esc((c.scopeNamespaces || []).join(', '))}</b>. ${c.nodesTotal ? 'Nodes are shown because your user may list them; node requests count only your pods' : 'Nodes and cluster capacity need cluster-wide rights'}${c.cpu.quota || c.mem.quota ? '; ResourceQuota is used as the capacity line' : ''}. <a href="#" data-acc>Change namespaces</a></span></div>` : ''}
+    ${isNs(c) ? `<div class="banner info"><b>Namespace-scoped.</b><span>Your credentials have Role/RoleBinding access, so KubeLamp shows only ${nsListHtml(c.scopeNamespaces || [])}. ${c.nodesTotal ? 'Nodes are shown because your user may list them; node requests count only your pods' : 'Nodes and cluster capacity need cluster-wide rights'}${c.cpu.quota || c.mem.quota ? '; ResourceQuota is used as the capacity line' : ''}. <a href="#" data-acc>Change namespaces</a></span></div>` : ''}
     ${certBanner(c)}
     ${c.status === 'partial' ? `<div class="banner"><b>Some data is missing.</b><span>${esc(c.error)}</span></div>` : ''}
     ${!c.metricsAvailable ? (/forbidden|RBAC/i.test(c.metricsErr || '')
@@ -795,7 +801,7 @@ async function viewLogs(route) {
 async function viewNamespaces(route) {
   const ctx = route.ctx;
   const sum = (await api('clusters')).find(c => c.name === ctx);
-  main.innerHTML = clusterHead(sum, 'Namespaces', `<div class="crumbs"><a href="${ctxPath(ctx)}/overview">${esc(shortName(ctx))}</a></div>`) + `
+  main.innerHTML = clusterHead(sum, 'Namespace health', `<div class="crumbs"><a href="${ctxPath(ctx)}/overview">${esc(shortName(ctx))}</a> / <a href="${ctxPath(ctx)}/nsview">Namespaces</a></div>`) + `
     <div class="filters"><label class="chk"><input type="checkbox" id="nsHealthy"> Show healthy namespaces</label>
       <span class="muted" id="nsScan"></span>
       <a class="btn ghost" href="${listHref(ctx, '', 'namespaces')}" style="margin-left:auto">All namespace objects</a></div>
@@ -824,14 +830,14 @@ async function viewNamespaces(route) {
         ${tile('Storage', stor, `volume claims ≥ ${data.warnPct}% full or unhealthy`, stor ? 'warn' : '')}
       </div>
       ${bad.length ? bad.map(n => `<div class="card nscard ${n.sev}"><div class="card-head">
-          <h3><a href="${ctxPath(ctx)}/pods" data-setns="${esc(n.name)}">${esc(n.name)}</a></h3>
+          <h3><a href="${ctxPath(ctx)}/nsview/${enc(n.name)}" title="Open the namespace overview">${esc(n.name)}</a></h3>
           ${stLabel(n.sev === 'critical' ? 'Critical' : 'Warning', n.sev)}
           <span class="cap">${n.running}/${n.pods} pods running · ${n.restarts} restarts · ${n.pvcs} volume claim${n.pvcs === 1 ? '' : 's'}</span></div>
           <ul class="attn">${n.items.map(it => `<li class="${it.sev}"><span class="ai"><i class="sdot"></i></span>
             <a href="${itemHref(n.name, it)}">${esc(it.name)}</a><span class="muted">${esc(it.detail)}</span></li>`).join('')}</ul></div>`).join('')
         : `<div class="card empty-ok"><b>Nothing needs attention.</b><span class="muted"> Every pod, workload and volume checked looks healthy.</span></div>`}
       ${ok.length ? (showHealthy
-        ? `<div class="card" style="margin-top:12px"><h3>Healthy namespaces</h3><div class="chips" style="margin-top:8px">${ok.map(n => `<a class="chip" href="${ctxPath(ctx)}/pods" data-setns="${esc(n.name)}">${esc(n.name)} <span class="muted">${n.running}/${n.pods}</span></a>`).join('')}</div></div>`
+        ? `<div class="card" style="margin-top:12px"><h3>Healthy namespaces</h3><div class="chips" style="margin-top:8px">${ok.map(n => `<a class="chip" href="${ctxPath(ctx)}/nsview/${enc(n.name)}">${esc(n.name)} <span class="muted">${n.running}/${n.pods}</span></a>`).join('')}</div></div>`
         : `<div class="muted" style="margin-top:10px">${ok.length} healthy namespace${ok.length === 1 ? '' : 's'} hidden.</div>`) : ''}`;
     $$('[data-setns]', $('#nsBox')).forEach(a => a.addEventListener('click', e => {
       e.preventDefault();
