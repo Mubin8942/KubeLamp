@@ -1,0 +1,102 @@
+# KubeLamp — GitLab CI: clone the source from GitHub, build the Docker images,
+# push them to Harbor.
+#
+# Set these in GitLab → Settings → CI/CD → Variables (mask + protect the secrets):
+#   REGISTRY         Harbor host, e.g. harbor.example.com          (no https://)
+#   HARBOR_USER      Harbor user or robot account, e.g. robot$kubelamp
+#   HARBOR_PASSWORD  its password / robot secret                   (masked)
+#   GITHUB_TOKEN     optional: only needed if the GitHub repo is private (masked)
+
+variables:
+  GIT_STRATEGY: clone
+  GIT_DEPTH: "0"
+  PROJECT_NAME: datastation
+  CHARTREPO: oci://$REGISTRY/$PROJECT_NAME-$CI_COMMIT_BRANCH
+  # source to build
+  GITHUB_REPO: github.com/Mubin8942/KubeLamp.git
+  GITHUB_BRANCH: dev
+  # image destination: <registry>/<harbor project>/kubelamp
+  HARBOR_PROJECT: $PROJECT_NAME-$CI_COMMIT_BRANCH
+  IMAGE_NAME: kubelamp
+  BUILD_TOOLS_IMAGE: "true"        # also build <tag>-tools (kubectl, aws-cli, bash)
+  DOCKER_BUILDKIT: "1"             # the Dockerfiles use $BUILDPLATFORM
+
+workflow:
+  rules:
+    - if: $CI_COMMIT_BRANCH == "com"
+      variables:
+        BUILDER: "nca"
+
+stages:
+- build
+
+build:
+  tags:
+    - $BUILDER
+  stage: build
+  script:
+    - |
+      set -euo pipefail
+
+      # ---- 1. clone KubeLamp from GitHub (fresh every run)
+      SRC_DIR="$CI_PROJECT_DIR/kubelamp-src"
+      rm -rf "$SRC_DIR"
+      if [ -n "${GITHUB_TOKEN:-}" ]; then
+        CLONE_URL="https://x-access-token:${GITHUB_TOKEN}@${GITHUB_REPO}"
+      else
+        CLONE_URL="https://${GITHUB_REPO}"
+      fi
+      echo "Cloning ${GITHUB_REPO} (branch ${GITHUB_BRANCH})"
+      git clone --depth 1 --branch "$GITHUB_BRANCH" "$CLONE_URL" "$SRC_DIR"
+      cd "$SRC_DIR"
+
+      # ---- 2. work out the tags
+      APP_VERSION=$(sed -n 's/^const version = "\(.*\)"/\1/p' main.go)
+      GIT_SHA=$(git rev-parse --short HEAD)
+      IMAGE="${REGISTRY}/${HARBOR_PROJECT}/${IMAGE_NAME}"
+      TAG="${APP_VERSION}-${GITHUB_BRANCH}-${GIT_SHA}"
+      LATEST="${GITHUB_BRANCH}-latest"
+      echo "Building ${IMAGE}:${TAG} (version ${APP_VERSION}, commit ${GIT_SHA})"
+
+      # ---- 3. log in to Harbor
+      echo "$HARBOR_PASSWORD" | docker login "$REGISTRY" -u "$HARBOR_USER" --password-stdin
+
+      # ---- 4. build and push the slim image
+      docker build \
+        --pull \
+        --build-arg VERSION="$TAG" \
+        --label org.opencontainers.image.revision="$GIT_SHA" \
+        --label org.opencontainers.image.source="https://${GITHUB_REPO}" \
+        -f Dockerfile \
+        -t "${IMAGE}:${TAG}" \
+        -t "${IMAGE}:${LATEST}" \
+        .
+      docker push "${IMAGE}:${TAG}"
+      docker push "${IMAGE}:${LATEST}"
+
+      # ---- 5. optional tools image (kubectl + aws-cli for EKS/exec kubeconfigs)
+      if [ "$BUILD_TOOLS_IMAGE" = "true" ]; then
+        docker build \
+          --pull \
+          --build-arg VERSION="${TAG}-tools" \
+          --label org.opencontainers.image.revision="$GIT_SHA" \
+          -f Dockerfile.tools \
+          -t "${IMAGE}:${TAG}-tools" \
+          -t "${IMAGE}:${LATEST}-tools" \
+          .
+        docker push "${IMAGE}:${TAG}-tools"
+        docker push "${IMAGE}:${LATEST}-tools"
+      fi
+
+      echo "Pushed:"
+      echo "  ${IMAGE}:${TAG}"
+      echo "  ${IMAGE}:${LATEST}"
+      [ "$BUILD_TOOLS_IMAGE" = "true" ] && echo "  ${IMAGE}:${TAG}-tools" && echo "  ${IMAGE}:${LATEST}-tools"
+      echo "IMAGE_TAG=${TAG}" > "$CI_PROJECT_DIR/build.env"
+  after_script:
+    - docker logout "$REGISTRY" || true
+    - docker image prune -f || true
+    - rm -rf "$CI_PROJECT_DIR/kubelamp-src"
+  artifacts:
+    reports:
+      dotenv: build.env
