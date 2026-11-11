@@ -4,7 +4,7 @@ ARG ALPINE_VERSION=3.20
 # ---------------------------------------------------------------- build
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS build
 ARG TARGETOS TARGETARCH
-# trust Robi proxy CA so go mod download works
+# trust  proxy CA so go mod download works
 COPY proxy-ca.crt /usr/local/share/ca-certificates/proxy-ca.crt
 RUN cat /usr/local/share/ca-certificates/proxy-ca.crt >> /etc/ssl/certs/ca-certificates.crt
 WORKDIR /src
@@ -20,7 +20,7 @@ ARG VERSION=dev
 LABEL org.opencontainers.image.title="KubeLamp" \
       org.opencontainers.image.source="https://github.com/Mubin8942/KubeLamp" \
       org.opencontainers.image.version="${VERSION}"
-# trust Robi proxy CA before apk, then make it permanent after ca-certificates is installed
+# trust  proxy CA before apk, then make it permanent after ca-certificates is installed
 COPY proxy-ca.crt /usr/local/share/ca-certificates/proxy-ca.crt
 RUN cat /usr/local/share/ca-certificates/proxy-ca.crt >> /etc/ssl/certs/ca-certificates.crt \
  && apk add --no-cache ca-certificates tzdata bash curl jq kubectl aws-cli \
