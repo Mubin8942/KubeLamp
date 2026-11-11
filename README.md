@@ -175,7 +175,7 @@ To build the DMG yourself, run `python3 packaging/macos/build_dmg.py --version 1
 | `-token` | auto | set your own token when sharing with `-addr 0.0.0.0:7080`. Otherwise a token is generated once and kept in the data folder, so the URL stays the same after restarts |
 | `-token-file` | | read the token from a file (Docker/Kubernetes secret); it is not printed |
 | `-data` | user config folder | where settings and the saved token live (`/data` in Docker) |
-| `-in-cluster` | `auto` | when running in a Kubernetes pod, connect to that cluster with the pod's service account (`true` / `false` to force) |
+| `-in-cluster` | `false` | also connect to the cluster KubeLamp runs in, with the pod's service account: `true`, or `auto` (only when running in a pod). Off by default: only the kubeconfigs you add are shown |
 | `-cluster-name` | `in-cluster` | name shown for the in-cluster connection |
 | `-max-download` / `-max-upload` / `-transfer-rate` | 256 / 100 MiB, 20 MiB/s | File Transfer limits |
 | `-interval` | `15s` | refresh interval for clusters you're viewing (minimum 5s). Others refresh every 60s |
@@ -205,7 +205,7 @@ docker logs kubelamp        # the URL with the access token
 
 ### Inside Kubernetes
 
-`deploy/kubernetes/kubelamp.yaml` runs KubeLamp as a Deployment that watches the cluster it runs in, with its own service account (no kubeconfig needed):
+`deploy/kubernetes/kubelamp.yaml` runs KubeLamp as a Deployment that watches the cluster it runs in, with its own service account (no kubeconfig needed). It sets `KUBELAMP_IN_CLUSTER=true`; without that, KubeLamp only shows the kubeconfigs you add in the browser:
 
 ```sh
 kubectl apply -f deploy/kubernetes/kubelamp.yaml

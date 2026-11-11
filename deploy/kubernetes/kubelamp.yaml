@@ -110,6 +110,7 @@ spec:
             - {name: http, containerPort: 7080}
           env:
             - {name: KUBELAMP_READ_ONLY, value: "true"}
+            - {name: KUBELAMP_IN_CLUSTER, value: "true"}             # connect with this pod's service account
             - {name: KUBELAMP_CLUSTER_NAME, value: "this-cluster"}   # name shown in the UI
             - {name: KUBELAMP_TOKEN_FILE, value: /secret/token}
           volumeMounts:

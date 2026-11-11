@@ -29,7 +29,7 @@ func main() {
 	xferRate := flag.Int("transfer-rate", 20, "file transfer speed limit in MiB/s per transfer, so large copies don't load the API server or the node")
 	dataFlag := flag.String("data", "", "folder for settings and the saved access token (default: your user config folder; /data in the Docker image)")
 	tokenFile := flag.String("token-file", "", "read the access token from this file, e.g. a mounted Kubernetes Secret")
-	inCluster := flag.String("in-cluster", "auto", "connect to the Kubernetes cluster KubeLamp runs in, with its service account: auto, true or false")
+	inCluster := flag.String("in-cluster", "false", "also connect to the Kubernetes cluster KubeLamp runs in, with its pod's service account: false (default), true, or auto (only when running in a pod)")
 	clusterName := flag.String("cluster-name", "in-cluster", "name shown for the in-cluster connection")
 	healthcheck := flag.Bool("healthcheck", false, "check that the KubeLamp listening on -addr answers /healthz, then exit (for Docker HEALTHCHECK)")
 	interval := flag.Duration("interval", 15*time.Second, "refresh interval for clusters you are viewing (min 5s); history keeps 1 hour")
