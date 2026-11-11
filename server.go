@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/subtle"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -23,9 +22,9 @@ import (
 var webFS embed.FS
 
 type Server struct {
-	reg        *Registry
+	reg        *Registry  // clusters when user accounts are off (tests only)
+	users      *UserStore // user accounts; each user has their own clusters
 	dataDir    string
-	token      string // optional shared token when exposed beyond localhost
 	localOnly  bool
 	readOnly   bool
 	ftMaxDown  int64 // file transfer limits in bytes (0 = default)
@@ -49,7 +48,7 @@ func writeErr(w http.ResponseWriter, code int, err error) {
 }
 
 func (s *Server) cluster(w http.ResponseWriter, r *http.Request) (*Cluster, *Snapshot, bool) {
-	c := s.reg.Get(r.URL.Query().Get("ctx"))
+	c := s.R(r).Get(r.URL.Query().Get("ctx"))
 	if c == nil {
 		writeErr(w, 404, errors.New("unknown context"))
 		return nil, nil, false
@@ -78,19 +77,24 @@ func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/kubeconfig", func(w http.ResponseWriter, r *http.Request) {
-		s.reg.mu.RLock()
-		paths, loadErr := s.reg.paths, s.reg.loadErr
-		s.reg.mu.RUnlock()
+		reg := s.R(r)
+		reg.mu.RLock()
+		paths, loadErr := reg.paths, reg.loadErr
+		reg.mu.RUnlock()
 		ctxs := []ContextInfo{}
-		for _, c := range s.reg.All() {
+		for _, c := range s.R(r).All() {
 			ctxs = append(ctxs, c.Info)
 		}
 		writeJSON(w, 200, map[string]any{"paths": paths, "error": loadErr, "contexts": ctxs,
-			"sources": s.kubeconfigSources(), "inCluster": s.reg.inCluster != nil,
-			"needsSetup": len(paths) == 0 && s.reg.inCluster == nil, "local": s.localOnly, "version": version})
+			"sources": s.kubeconfigSources(r), "inCluster": reg.inCluster != nil,
+			"needsSetup": len(paths) == 0 && reg.inCluster == nil, "local": s.localOnly, "admin": s.isAdmin(r), "version": version})
 	})
 
 	mux.HandleFunc("PUT /api/kubeconfig", func(w http.ResponseWriter, r *http.Request) {
+		if !s.isAdmin(r) {
+			writeErr(w, 403, errors.New("only admins can load kubeconfig files from the server's disk; upload or paste yours instead"))
+			return
+		}
 		var req struct {
 			Paths string `json:"paths"`
 		}
@@ -116,11 +120,8 @@ func (s *Server) routes() http.Handler {
 			writeErr(w, 400, err)
 			return
 		}
-		st := loadSettings(s.dataDir)
-		st.Kubeconfig = paths
-		s.reg.Load(paths, st.Access)
-		saveSettings(s.dataDir, st)
-		writeJSON(w, 200, map[string]any{"ok": true, "contexts": len(s.reg.All())})
+		s.setKubeconfigs(r, paths)
+		writeJSON(w, 200, map[string]any{"ok": true, "contexts": len(s.R(r).All())})
 	})
 
 	// Per-context access: auto / cluster-wide / only these namespaces (Role + RoleBinding).
@@ -134,7 +135,7 @@ func (s *Server) routes() http.Handler {
 			writeErr(w, 400, err)
 			return
 		}
-		c := s.reg.Get(req.Context)
+		c := s.R(r).Get(req.Context)
 		if c == nil {
 			writeErr(w, 404, errors.New("unknown context"))
 			return
@@ -150,21 +151,23 @@ func (s *Server) routes() http.Handler {
 		}
 		c.SetAccess(acc)
 		c.touch()
-		st := loadSettings(s.dataDir)
+		st := loadSettings(s.userDir(r))
 		if len(st.Kubeconfig) == 0 {
-			s.reg.mu.RLock()
-			st.Kubeconfig = s.reg.paths
-			s.reg.mu.RUnlock()
+			st.Kubeconfig = s.currentPaths(r)
 		}
 		if st.Access == nil {
 			st.Access = map[string]AccessSettings{}
 		}
 		st.Access[req.Context] = acc
-		saveSettings(s.dataDir, st)
+		saveSettings(s.userDir(r), st)
 		writeJSON(w, 200, acc)
 	})
 
 	mux.HandleFunc("POST /api/quit", func(w http.ResponseWriter, r *http.Request) {
+		if !s.isAdmin(r) {
+			writeErr(w, 403, errors.New("only admins can stop the server"))
+			return
+		}
 		writeJSON(w, 200, map[string]bool{"ok": true})
 		if s.quit != nil {
 			go s.quit()
@@ -173,18 +176,18 @@ func (s *Server) routes() http.Handler {
 
 	mux.HandleFunc("GET /api/clusters", func(w http.ResponseWriter, r *http.Request) {
 		out := []ClusterSummary{}
-		for _, c := range s.reg.All() {
+		for _, c := range s.R(r).All() {
 			out = append(out, summarize(c))
 		}
 		writeJSON(w, 200, out)
 	})
 
 	mux.HandleFunc("POST /api/refresh", func(w http.ResponseWriter, r *http.Request) {
-		if c := s.reg.Get(r.URL.Query().Get("ctx")); c != nil {
+		if c := s.R(r).Get(r.URL.Query().Get("ctx")); c != nil {
 			c.touch()
 			c.poke()
 		} else {
-			for _, c := range s.reg.All() {
+			for _, c := range s.R(r).All() {
 				c.poke()
 			}
 		}
@@ -366,7 +369,7 @@ func (s *Server) routes() http.Handler {
 		pods, stale := snap.Pods, false
 		if r.URL.Query().Get("fresh") == "1" {
 			// live list so 1s/5s polling shows real changes, not the 15s snapshot
-			if c := s.reg.Get(r.URL.Query().Get("ctx")); c != nil && c.client != nil {
+			if c := s.R(r).Get(r.URL.Query().Get("ctx")); c != nil && c.client != nil {
 				ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 				if fp, err := c.FreshPods(ctx, ns); err == nil {
 					pods = fp
@@ -444,6 +447,9 @@ func (s *Server) routes() http.Handler {
 		s.handleLogDownload(w, r, c)
 	})
 
+	if s.users != nil {
+		s.authRoutes(mux)
+	}
 	s.resourceRoutes(mux)
 	s.kubeconfigRoutes(mux)
 	s.routeRoutes(mux)
@@ -456,7 +462,11 @@ func (s *Server) routes() http.Handler {
 	s.dnsRoutes(mux)
 
 	mux.HandleFunc("GET /api/info", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, map[string]any{"version": version, "readOnly": s.readOnly, "shell": s.shellAllowed(), "os": runtime.GOOS})
+		info := map[string]any{"version": version, "readOnly": s.readOnly, "shell": s.shellAllowed(r), "os": runtime.GOOS, "admin": s.isAdmin(r)}
+		if u := reqUser(r); u != nil {
+			info["user"] = u.view()
+		}
+		writeJSON(w, 200, info)
 	})
 
 	sub, _ := fs.Sub(webFS, "web")
@@ -514,8 +524,8 @@ func (s *Server) liveEvents(ctx context.Context, c *Cluster, ns, kind, name stri
 	return out
 }
 
-// guard: localhost-only by default (with DNS-rebinding protection), or a bearer
-// token / ?token= when bound to other interfaces.
+// guard: localhost-only by default (with DNS-rebinding protection), same-origin
+// writes, and a signed-in user for every API call.
 func (s *Server) guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/healthz" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
@@ -535,23 +545,6 @@ func (s *Server) guard(next http.Handler) http.Handler {
 				return
 			}
 		}
-		if s.token != "" {
-			got := ""
-			if c, err := r.Cookie("kubelamp_token"); err == nil {
-				got = c.Value
-			}
-			if t := r.URL.Query().Get("token"); t != "" {
-				got = t
-				http.SetCookie(w, &http.Cookie{Name: "kubelamp_token", Value: t, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
-			}
-			if a := r.Header.Get("Authorization"); strings.HasPrefix(a, "Bearer ") {
-				got = strings.TrimPrefix(a, "Bearer ")
-			}
-			if subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) != 1 {
-				http.Error(w, "unauthorized: open the URL printed at startup (it contains ?token=…)", http.StatusUnauthorized)
-				return
-			}
-		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			if !sameOrigin(r) {
 				http.Error(w, "cross-origin request blocked (behind a reverse proxy, forward the Host header or set X-Forwarded-Host)", http.StatusForbidden)
@@ -561,6 +554,21 @@ func (s *Server) guard(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
+		// a newer KubeLamp started on this machine asks the old one to quit (main.replaceOlder):
+		// only on a localhost-only server, from loopback, never from a browser
+		if s.localOnly && s.quit != nil && r.Method == http.MethodPost && r.URL.Path == "/api/quit" && r.Header.Get("X-KubeLamp-Replace") != "" &&
+			r.Header.Get("Origin") == "" && r.Header.Get("Sec-Fetch-Site") == "" && net.ParseIP(clientIP(r)).IsLoopback() {
+			writeJSON(w, 200, map[string]bool{"ok": true})
+			go s.quit()
+			return
+		}
+		// the page and its scripts are public (the login screen); every API call needs a session
+		if s.users != nil && (r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/")) {
+			var ok bool
+			if r, ok = s.authenticate(w, r); !ok {
+				return
+			}
+		}
 		next.ServeHTTP(w, r)
 	})
 }

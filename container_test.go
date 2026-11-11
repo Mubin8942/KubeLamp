@@ -43,33 +43,6 @@ func TestApplyEnv(t *testing.T) {
 	}
 }
 
-func TestResolveToken(t *testing.T) {
-	dir := t.TempDir()
-	if tok, src, _ := resolveToken("given", "", dir); tok != "given" || src != "flag" {
-		t.Errorf("flag: %s %s", tok, src)
-	}
-	f := filepath.Join(dir, "secret")
-	_ = os.WriteFile(f, []byte("  from-file\n"), 0o600)
-	if tok, src, _ := resolveToken("", f, dir); tok != "from-file" || src != "file" {
-		t.Errorf("file: %s %s", tok, src)
-	}
-	if _, _, err := resolveToken("", filepath.Join(dir, "missing"), dir); err == nil {
-		t.Error("missing token file must fail")
-	}
-	data := filepath.Join(dir, "data")
-	t1, src, _ := resolveToken("", "", data)
-	if len(t1) != 32 || src != "new-saved" {
-		t.Fatalf("generated: %q %s", t1, src)
-	}
-	if st, _ := os.Stat(filepath.Join(data, "token")); st == nil || st.Mode().Perm() != 0o600 {
-		t.Errorf("token file mode: %v", st)
-	}
-	t2, src, _ := resolveToken("", "", data)
-	if t2 != t1 || src != "saved" {
-		t.Errorf("restart must reuse the saved token: %s %s", t2, src)
-	}
-}
-
 func TestInClusterContextFiles(t *testing.T) {
 	t.Setenv("KUBERNETES_SERVICE_HOST", "")
 	if _, err := inClusterContext(""); err == nil {
@@ -169,9 +142,13 @@ func TestInClusterAgainstMock(t *testing.T) {
 	if len(reg2.All()) != len(kc.Contexts)+1 || reg2.All()[0].Info.Source != "in-cluster" || reg2.All()[0].Info.Current {
 		t.Errorf("with kubeconfig: n=%d first=%+v", len(reg2.All()), reg2.All()[0].Info)
 	}
-	srv := httptest.NewServer((&Server{reg: reg, dataDir: dir, token: "tok"}).routes())
+	users, err := openUserStore(filepath.Join(dir, "data"), "admin", "Adm1n-pass-123", ic, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer((&Server{reg: &Registry{}, users: users, dataDir: dir}).routes())
 	defer srv.Close()
-	// the token guard applies to the API but not to /healthz
+	// sign-in applies to the API but not to /healthz
 	r, _ := http.Get(srv.URL + "/healthz")
 	if r.StatusCode != 200 {
 		t.Errorf("healthz: %d", r.StatusCode)
@@ -179,14 +156,14 @@ func TestInClusterAgainstMock(t *testing.T) {
 	r.Body.Close()
 	r, _ = http.Get(srv.URL + "/api/clusters")
 	if r.StatusCode != 401 {
-		t.Errorf("api without token: %d", r.StatusCode)
+		t.Errorf("api without a session: %d", r.StatusCode)
 	}
 	r.Body.Close()
+	hc := login(t, srv.URL, "admin", "Adm1n-pass-123")
 	req, _ := http.NewRequest("GET", srv.URL+"/api/overview?ctx=binge-prod", nil)
-	req.Header.Set("Authorization", "Bearer tok")
 	var ok bool
 	for i := 0; i < 40 && !ok; i++ {
-		r, err = http.DefaultClient.Do(req)
+		r, err = hc.Do(req)
 		if err == nil {
 			ok = r.StatusCode == 200
 			r.Body.Close()
@@ -201,7 +178,7 @@ func TestInClusterAgainstMock(t *testing.T) {
 }
 
 func TestHealthcheckCommand(t *testing.T) {
-	srv := httptest.NewServer((&Server{reg: &Registry{}, token: "x"}).routes())
+	srv := httptest.NewServer((&Server{reg: &Registry{}}).routes())
 	defer srv.Close()
 	u, _ := url.Parse(srv.URL)
 	if runHealthcheck(u.Host) != 0 {

@@ -16,7 +16,7 @@ function kcAddForm(box, kc, onDone) {
   box.innerHTML = `<div class="seg kc-tabs" role="tablist">
       <button type="button" data-t="upload" class="on">${KC_ICON.upload}Upload file</button>
       <button type="button" data-t="paste">${KC_ICON.paste}Paste</button>
-      <button type="button" data-t="path">${KC_ICON.path}File path</button></div>
+      ${kc.admin ? `<button type="button" data-t="path">${KC_ICON.path}File path</button>` : ''}</div>
     <div class="kc-pane" data-p="upload">
       <label class="kc-drop" id="kcDrop">${KC_ICON.upload}<b>Drop kubeconfig files here</b><span class="muted">or click to choose · you can pick several</span>
         <input type="file" id="kcFile" multiple accept=".yaml,.yml,.conf,.config,.kubeconfig,text/yaml,text/plain,*/*"></label></div>
@@ -24,14 +24,14 @@ function kcAddForm(box, kc, onDone) {
       <label class="kc-f"><span>Name</span><input type="text" id="kcName" placeholder="e.g. production" spellcheck="false"></label>
       <label class="kc-f"><span>Kubeconfig YAML</span><textarea id="kcYaml" rows="10" spellcheck="false" placeholder="apiVersion: v1&#10;kind: Config&#10;clusters: …&#10;contexts: …&#10;users: …"></textarea></label>
       <button type="button" class="btn primary" id="kcPasteGo">Add kubeconfig</button></div>
-    <div class="kc-pane" data-p="path" hidden>
+    ${kc.admin ? '' : '<!--'}<div class="kc-pane" data-p="path" hidden>
       <label class="kc-f"><span>Path on ${kc.local ? 'this computer' : 'the KubeLamp server'}</span>
         <input type="text" id="kcPath" spellcheck="false" placeholder="${navigator.platform.startsWith('Win') ? 'C:\\Users\\you\\.kube\\config' : '~/.kube/config'}"></label>
       <p class="muted kc-hint">${kc.local ? `Separate several files with <code>${sep}</code>.` : 'The file must exist where KubeLamp runs (for Docker: inside the container, e.g. a mounted <code>/kube/config</code>).'}</p>
-      <button type="button" class="btn primary" id="kcPathGo">Load file</button></div>
+      <button type="button" class="btn primary" id="kcPathGo">Load file</button></div>${kc.admin ? '' : '-->'}
     <div class="kc-msg" id="kcMsg" role="status"></div>
-    <p class="muted kc-hint">${kc.local ? 'Kubeconfigs you upload or paste are copied into KubeLamp\'s data folder (readable only by you) so they are there next time.'
-      : 'Uploaded kubeconfigs are stored on the KubeLamp server in its data folder. For safety they must embed certificates (<code>*-data</code> fields) and may only use known login plugins (aws, kubelogin, gke-gcloud-auth-plugin…).'}</p>`;
+    <p class="muted kc-hint">Your kubeconfigs are stored on the KubeLamp server in your own folder: other users can't see or use them. ${kc.local && kc.admin ? ''
+      : 'They must embed certificates (<code>*-data</code> fields) and may only log in with known plugins (aws, kubelogin, gke-gcloud-auth-plugin…).'}</p>`;
   const msg = (t, kind = '') => { const m = $('#kcMsg', box); m.className = 'kc-msg ' + kind; m.innerHTML = t; };
   $$('.kc-tabs button', box).forEach(b => b.addEventListener('click', () => {
     $$('.kc-tabs button', box).forEach(x => x.classList.toggle('on', x === b));
@@ -70,8 +70,8 @@ function kcAddForm(box, kc, onDone) {
     try { await send('POST', 'kubeconfig/path', { path }); msg('✓ Loaded ' + esc(path), 'ok'); onDone(true); }
     catch (e) { msg('✕ ' + esc(e.message), 'err'); }
   };
-  $('#kcPathGo', box).addEventListener('click', goPath);
-  $('#kcPath', box).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); goPath(); } });
+  $('#kcPathGo', box)?.addEventListener('click', goPath);
+  $('#kcPath', box)?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); goPath(); } });
 }
 
 // first run: nothing loaded yet
@@ -80,7 +80,7 @@ function viewConnect(kc) {
   main.innerHTML = `<div class="kc-welcome">
       <img src="logo.png" alt="" width="56" height="56">
       <h1>Connect your clusters</h1>
-      <p class="ink2">KubeLamp needs a kubeconfig to reach your Kubernetes clusters. Add one to start — nothing is read from this machine until you do.</p>
+      <p class="ink2">KubeLamp needs a kubeconfig to reach your Kubernetes clusters. Add yours to start — it is private to your account.</p>
       <div class="card kc-card" id="kcAdd"></div>
     </div>`;
   kcAddForm($('#kcAdd'), kc, () => setTimeout(() => navigate(), 600));

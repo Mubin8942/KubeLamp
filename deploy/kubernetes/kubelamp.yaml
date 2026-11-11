@@ -1,8 +1,12 @@
 # KubeLamp inside the cluster, READ-ONLY by default.
 #
 #   kubectl apply -f kubelamp.yaml
-#   kubectl -n kubelamp create secret generic kubelamp-token --from-literal=token=$(openssl rand -hex 16)
-#   kubectl -n kubelamp port-forward svc/kubelamp 7080:80     # then open http://localhost:7080/?token=<token>
+#   kubectl -n kubelamp create secret generic kubelamp-admin --from-literal=password="$(openssl rand -base64 18)"
+#   kubectl -n kubelamp port-forward svc/kubelamp 7080:80     # open http://localhost:7080 and sign in as admin
+#
+# Users, their kubeconfigs and settings live in /data (a PersistentVolumeClaim, so they survive
+# restarts). The admin is created on the first start from the kubelamp-admin Secret; without the
+# Secret it is admin/admin and must be changed at first sign-in.
 #
 # Permissions: the built-in "view" role (all namespaced resources except Secrets) plus read access
 # to cluster-scoped objects KubeLamp shows (nodes, persistent volumes, storage classes, CRDs, metrics,
@@ -62,7 +66,7 @@ rules:
   - apiGroups: [scheduling.k8s.io, node.k8s.io, admissionregistration.k8s.io, apiregistration.k8s.io]
     resources: ["*"]
     verbs: [get, list, watch]
-  # Secrets are left out on purpose: anyone with the KubeLamp token could read them.
+  # Secrets are left out on purpose: every admin of KubeLamp could read them.
   # To list Secrets anyway, uncomment:
   # - apiGroups: [""]
   #   resources: [secrets]
@@ -112,10 +116,10 @@ spec:
             - {name: KUBELAMP_READ_ONLY, value: "true"}
             - {name: KUBELAMP_IN_CLUSTER, value: "true"}             # connect with this pod's service account
             - {name: KUBELAMP_CLUSTER_NAME, value: "this-cluster"}   # name shown in the UI
-            - {name: KUBELAMP_TOKEN_FILE, value: /secret/token}
+            - name: KUBELAMP_ADMIN_PASSWORD                         # only used on the first start
+              valueFrom: {secretKeyRef: {name: kubelamp-admin, key: password, optional: true}}
           volumeMounts:
             - {name: data, mountPath: /data}
-            - {name: token, mountPath: /secret, readOnly: true}
           readinessProbe:
             httpGet: {path: /healthz, port: http}
             periodSeconds: 10
@@ -132,10 +136,18 @@ spec:
             capabilities: {drop: [ALL]}
       volumes:
         - name: data
-          emptyDir: {}
-        - name: token
-          secret:
-            secretName: kubelamp-token
+          persistentVolumeClaim: {claimName: kubelamp-data}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kubelamp-data
+  namespace: kubelamp
+  labels: {app.kubernetes.io/name: kubelamp}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: {storage: 1Gi}
 ---
 apiVersion: v1
 kind: Service

@@ -751,3 +751,29 @@ html.glass .banner { border-left-color: var(--warning); } html.glass .banner.err
 .kc-src-main > span { font-size: 12px; overflow-wrap: anywhere; }
 .kc-sub { margin: 6px 0 0; font-size: 13.5px; font-weight: 600; }
 .dlg.wide:has(.kc-list) { width: 640px; }
+
+/* ---------- Sign-in, password change, user menu, users */
+body.auth-on > :not(.auth-screen):not(script) { visibility: hidden; }
+.auth-screen { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 24px 16px; overflow: auto;
+  background:
+    radial-gradient(900px 600px at 0% 0%, rgba(var(--accent-rgb, 50,108,229), .26), transparent 60%),
+    radial-gradient(800px 700px at 100% 100%, rgba(var(--accent-rgb, 50,108,229), .18), transparent 60%),
+    var(--bg); }
+.auth-card { width: 400px; max-width: 100%; padding: 30px 30px 24px; border-radius: 18px; box-shadow: 0 24px 60px rgba(0,0,0,.25), inset 0 1px 0 var(--glass-hi, transparent); }
+html.glass .auth-card { background: var(--glass); -webkit-backdrop-filter: blur(22px) saturate(160%); backdrop-filter: blur(22px) saturate(160%); }
+.auth-head { text-align: center; margin-bottom: 20px; }
+.auth-head img { border-radius: 12px; box-shadow: 0 10px 30px rgba(var(--accent-rgb, 50,108,229), .35); }
+.auth-head h1 { font-size: 20px; font-weight: 600; margin: 12px 0 6px; letter-spacing: -.2px; }
+.auth-head p { margin: 0; color: var(--ink-2); font-size: 13px; }
+.auth-form { display: flex; flex-direction: column; gap: 12px; }
+.auth-form input { height: 38px; font-size: 14px; }
+.auth-form .btn { height: 38px; justify-content: center; }
+.auth-go { margin-top: 4px; }
+.auth-err { color: var(--critical); font-size: 12.5px; min-height: 0; }
+.auth-err:empty { display: none; }
+.auth-hint { font-size: 12px; margin: -4px 0 0; }
+.user-btn i { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--accent-fg, #fff); font-style: normal; font-weight: 600; font-size: 12px; }
+.user-btn span { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+.set-users { grid-template-columns: 240px minmax(0, 1fr); }
+.pw-row { display: flex; gap: 8px; } .pw-row input { flex: 1; font-family: var(--mono); }
+@media (max-width: 700px) { .user-btn span { display: none; } }

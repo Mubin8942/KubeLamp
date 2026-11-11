@@ -12,7 +12,13 @@ const enc = encodeURIComponent;
 // every request is relative to the page's own folder, never to the site root
 const BASE = location.pathname.replace(/[^/]*$/, '');
 const apiURL = path => BASE + 'api/' + path;
-const httpErr = (r, d) => new Error(d.error || `${r.status} ${r.statusText || 'error'}${r.headers.get('content-type')?.includes('json') ? '' : ` from ${new URL(r.url).pathname} — is the reverse proxy forwarding ${BASE}api/ to KubeLamp?`}`);
+// the session ended (expired, signed out elsewhere, password reset): sign in again
+function authLost(r, d) {
+  if (typeof Auth === 'undefined') return;
+  if (r.status === 401 && d.login) Auth.signIn('Your session ended. Sign in again.').then(() => location.reload());
+  else if (r.status === 403 && d.mustChange) location.reload();
+}
+const httpErr = (r, d) => (authLost(r, d), new Error(d.error || `${r.status} ${r.statusText || 'error'}${r.headers.get('content-type')?.includes('json') ? '' : ` from ${new URL(r.url).pathname} — is the reverse proxy forwarding ${BASE}api/ to KubeLamp?`}`));
 async function api(path) {
   const r = await fetch(apiURL(path), { signal: S.abort?.signal });
   const d = await r.json().catch(() => ({}));

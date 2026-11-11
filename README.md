@@ -124,6 +124,16 @@ Choosing a namespace in the top namespace picker opens its overview.
 
 **Routing overview:** *Network → Routing* shows Traefik IngressRoutes, the Gateway API HTTPRoutes beneath them, and Ingresses in one place, each as host → match → backend service (with weights, middlewares or filters, TLS and entry points or parent gateways). HTTPRoutes whose gateway hasn't accepted them or whose backends don't resolve get a red dot. The IngressRoutes list also shows the HTTPRoutes underneath, and IngressRoute, HTTPRoute and Ingress pages get a *Routing* card.
 
+**Users and sign-in:**
+- **First start:** KubeLamp creates one admin, `admin` / `admin` by default, or `KUBELAMP_ADMIN_USER` / `KUBELAMP_ADMIN_PASSWORD`. The default password must be changed at the first sign-in. Once `users.json` exists, these variables are ignored.
+- **Adding users:** the admin adds users in *Settings → Users* with a temporary password. Each user must choose their own password at first sign-in, and again after an admin resets it. Admins can also change roles and delete users.
+- **Private clusters:** every user uploads their own kubeconfigs and sees only their own clusters. Kubeconfigs are stored in `<data>/users/<id>/`, readable only by the KubeLamp process.
+- **Admin-only:** managing users, loading kubeconfig files from the server's disk, the in-cluster connection, the local shell, and *Stop server*.
+- **Password storage:** `<data>/users.json` (mode 600) holds only salted PBKDF2-SHA256 hashes (600,000 rounds), never the passwords.
+- **Sessions:** an HttpOnly, SameSite=Strict cookie (Secure over HTTPS) that ends after 12 h idle or 7 days, on sign-out, or when the password changes. A restart signs everyone out.
+- **Brute force:** after 5 wrong passwords, sign-in for that user waits (30 s, doubling up to 15 min).
+- **Upgrading:** kubeconfigs added before accounts existed are moved to the first admin. The old `-token` / `KUBELAMP_TOKEN(_FILE)` settings are ignored.
+
 **Settings and themes:** the gear in the top bar opens *Settings*:
 - **Theme:** System (follows the OS), Light or Dark.
 - **Accent colour:** Blue (default), Indigo, Purple, Pink, Red, Orange, Amber, Green, Teal, Cyan, Slate, or any colour from the colour picker or a hex value. Text colours are adjusted automatically to stay readable.
@@ -171,10 +181,10 @@ To build the DMG yourself, run `python3 packaging/macos/build_dmg.py --version 1
 | Flag | Default | |
 |---|---|---|
 | `-kubeconfig` | none: asked in the browser | optional files to load at start (separate with `:` on Linux/macOS, `;` on Windows) |
-| `-addr` | `127.0.0.1:7080` | listen address. On anything other than localhost, an access token is required and printed at start |
-| `-token` | auto | set your own token when sharing with `-addr 0.0.0.0:7080`. Otherwise a token is generated once and kept in the data folder, so the URL stays the same after restarts |
-| `-token-file` | | read the token from a file (Docker/Kubernetes secret); it is not printed |
-| `-data` | user config folder | where settings and the saved token live (`/data` in Docker) |
+| `-addr` | `127.0.0.1:7080` | listen address; `0.0.0.0:7080` to share on the network |
+| `-admin-user` / `KUBELAMP_ADMIN_USER` | `admin` | the admin created on the first start (ignored once `users.json` exists) |
+| `-admin-password` / `KUBELAMP_ADMIN_PASSWORD` | `admin` | that admin's password. The default `admin` must be changed at first sign-in; prefer the environment variable |
+| `-data` | user config folder | users, their kubeconfigs and settings (`/data` in Docker) |
 | `-in-cluster` | `false` | also connect to the cluster KubeLamp runs in, with the pod's service account: `true`, or `auto` (only when running in a pod). Off by default: only the kubeconfigs you add are shown |
 | `-cluster-name` | `in-cluster` | name shown for the in-cluster connection |
 | `-max-download` / `-max-upload` / `-transfer-rate` | 256 / 100 MiB, 20 MiB/s | File Transfer limits |
@@ -193,14 +203,14 @@ One all-in-one image, `kubelamp:<version>` / `:latest`: Alpine, non-root, with `
 
 ```sh
 docker run -d --name kubelamp -p 7080:7080 -v kubelamp-data:/data ghcr.io/zanayeem/kubelamp:latest
-docker logs kubelamp        # the URL with the access token
+# open http://localhost:7080 and sign in as admin / admin (you'll be asked to change it)
 ```
 
 - **Open the URL and upload or paste your kubeconfig.** It is kept in the `/data` volume, so keep that volume to keep your clusters across restarts.
 - **Uploaded kubeconfigs must be self-contained** when KubeLamp is reachable over the network: certificates embedded (`*-data` fields), no `tokenFile`, and logins only through known plugins (`aws`, `kubelogin`, `gke-gcloud-auth-plugin`, `gcloud`, `az`, `doctl`, `oci`, `kubectl`). This keeps anyone with the URL from running commands or reading files in the container. On `127.0.0.1` any kubeconfig is accepted.
 - **Prefer a mounted file?** Mount it (`-v ~/.kube:/kube:ro --user "$(id -u):$(id -g)"`) and enter `/kube/config` under *File path*.
 - **EKS:** mount your AWS credentials: `-v ~/.aws:/home/kubelamp/.aws:ro` (and `-e AWS_PROFILE=…` if needed).
-- **Defaults in the image:** listens on `0.0.0.0:7080` with a token (kept in `/data/token`), asks for a kubeconfig in the browser, no browser, local shell off. The image has a health check; `/healthz` answers without a token.
+- **Defaults in the image:** listens on `0.0.0.0:7080`, sign-in required, each user adds their kubeconfigs in the browser, local shell off. The image has a health check; `/healthz` answers without signing in.
 - **Docker Compose:** see `docker-compose.yml`.
 
 ### Inside Kubernetes
@@ -209,12 +219,12 @@ docker logs kubelamp        # the URL with the access token
 
 ```sh
 kubectl apply -f deploy/kubernetes/kubelamp.yaml
-kubectl -n kubelamp create secret generic kubelamp-token --from-literal=token="$(openssl rand -hex 16)"
-kubectl -n kubelamp port-forward svc/kubelamp 7080:80     # open http://localhost:7080/?token=<the token>
+kubectl -n kubelamp create secret generic kubelamp-admin --from-literal=password="$(openssl rand -base64 18)"
+kubectl -n kubelamp port-forward svc/kubelamp 7080:80     # open http://localhost:7080 and sign in as admin
 ```
 
 - **Read-only by default:** the service account gets the built-in `view` role (no Secrets) plus read access to nodes, volumes, CRDs, metrics, Cilium and Gateway API objects, and KubeLamp runs with `KUBELAMP_READ_ONLY=true`.
-- **Terminals and pod tools:** apply `deploy/kubernetes/rbac-operator.yaml` (pod exec, edit, scale, restart, delete, cordon) and set `KUBELAMP_READ_ONLY` to `"false"`. Everyone with the token gets those rights, so put your SSO in front first (oauth2-proxy or a Traefik ForwardAuth middleware).
+- **Terminals and pod tools:** apply `deploy/kubernetes/rbac-operator.yaml` (pod exec, edit, scale, restart, delete, cordon) and set `KUBELAMP_READ_ONLY` to `"false"`. Every admin of KubeLamp gets those rights through the in-cluster connection.
 - **Ingress:** `deploy/kubernetes/ingress-traefik.yaml` is a Traefik example with TLS.
 - The service account token is re-read on every request, so Kubernetes token rotation needs no restart. Keep one replica: history and tool jobs are kept in memory.
 - You can mount a kubeconfig as well (`KUBELAMP_KUBECONFIG`) to see other clusters next to the one KubeLamp runs in.
@@ -278,7 +288,7 @@ Writes use the API server directly with your kubeconfig credentials, so Kubernet
 
 Security:
 - By default KubeLamp only accepts connections from this machine. It checks the Host header (DNS-rebinding guard) and the Origin header on writes and terminals.
-- When bound to the network it requires a token, and the local shell is turned off unless you pass `-allow-shell`.
+- Everyone signs in (see *Users and sign-in*). The local shell is for admins only, and off on the network unless you pass `-allow-shell`.
 - Your kubeconfig credentials never leave the KubeLamp process.
 
 ## Build from source

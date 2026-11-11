@@ -1,7 +1,8 @@
 # KubeLamp with Docker Compose. Open the URL and upload or paste your kubeconfig;
 # it is kept in the kubelamp-data volume.
 #   docker compose up -d
-#   docker compose logs kubelamp      # shows the URL with the access token
+#   open http://localhost:7080 and sign in as admin / admin (you must change it), or set the
+#   admin's password below before the first start
 services:
   kubelamp:
     image: ghcr.io/zanayeem/kubelamp:latest      # or docker.io/<user>/kubelamp, or build: .
@@ -12,7 +13,8 @@ services:
       - "7080:7080"
     environment:
       KUBELAMP_READ_ONLY: "false"
-      # KUBELAMP_TOKEN: "choose-a-long-random-token"   # otherwise one is generated and kept in /data/token
+      # KUBELAMP_ADMIN_USER: "admin"                  # first start only
+      # KUBELAMP_ADMIN_PASSWORD: "a-long-password"     # first start only; default admin (must be changed)
     volumes:
       # - ${HOME}/.kube:/kube:ro                   # optional: then enter /kube/config under "File path"
       - kubelamp-data:/data

@@ -21,11 +21,11 @@ import (
 
 const maxKubeconfigSize = 4 << 20
 
-func (s *Server) kcDir() string { return filepath.Join(s.dataDir, "kubeconfigs") }
+func (s *Server) kcDir(r *http.Request) string { return filepath.Join(s.userDir(r), "kubeconfigs") }
 
 // isUploaded reports whether p is a kubeconfig KubeLamp stored from an upload.
-func (s *Server) isUploaded(p string) bool {
-	rel, err := filepath.Rel(s.kcDir(), p)
+func (s *Server) isUploaded(r *http.Request, p string) bool {
+	rel, err := filepath.Rel(s.kcDir(r), p)
 	return err == nil && !strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel)
 }
 
@@ -80,17 +80,20 @@ func randHex(n int) string {
 }
 
 // setKubeconfigs reloads the clusters from paths and remembers them.
-func (s *Server) setKubeconfigs(paths []string) {
-	st := loadSettings(s.dataDir)
+func (s *Server) setKubeconfigs(r *http.Request, paths []string) {
+	dir := s.userDir(r)
+	_ = os.MkdirAll(dir, 0o700)
+	st := loadSettings(dir)
 	st.Kubeconfig = paths
-	s.reg.Load(paths, st.Access)
-	saveSettings(s.dataDir, st)
+	s.R(r).Load(paths, st.Access)
+	saveSettings(dir, st)
 }
 
-func (s *Server) currentPaths() []string {
-	s.reg.mu.RLock()
-	defer s.reg.mu.RUnlock()
-	return append([]string(nil), s.reg.paths...)
+func (s *Server) currentPaths(r *http.Request) []string {
+	reg := s.R(r)
+	reg.mu.RLock()
+	defer reg.mu.RUnlock()
+	return append([]string(nil), reg.paths...)
 }
 
 // KubeconfigSource is one file the clusters come from.
@@ -102,10 +105,10 @@ type KubeconfigSource struct {
 	Error    string   `json:"error,omitempty"`
 }
 
-func (s *Server) kubeconfigSources() []KubeconfigSource {
+func (s *Server) kubeconfigSources(r *http.Request) []KubeconfigSource {
 	out := []KubeconfigSource{}
-	for _, p := range s.currentPaths() {
-		src := KubeconfigSource{Path: p, Name: p, Uploaded: s.isUploaded(p), Contexts: []string{}}
+	for _, p := range s.currentPaths(r) {
+		src := KubeconfigSource{Path: p, Name: p, Uploaded: s.isUploaded(r, p), Contexts: []string{}}
 		if src.Uploaded {
 			// stored as <name>-<random>.yaml: show the name the user gave
 			base := strings.TrimSuffix(filepath.Base(p), ".yaml")
@@ -145,14 +148,16 @@ func (s *Server) kubeconfigRoutes(mux *http.ServeMux) {
 			writeErr(w, 400, errors.New("the kubeconfig is empty"))
 			return
 		}
-		f, err := checkUploadedKubeconfig([]byte(req.YAML), s.localOnly)
+		// anything goes only for an admin on their own machine; otherwise the kubeconfig
+		// must not make the server read its files or run arbitrary commands
+		f, err := checkUploadedKubeconfig([]byte(req.YAML), s.localOnly && s.isAdmin(r))
 		if err != nil {
 			writeErr(w, 400, err)
 			return
 		}
 		// warn about contexts an earlier file already defines (the first file wins, like kubectl)
 		have := map[string]bool{}
-		for _, c := range s.reg.All() {
+		for _, c := range s.R(r).All() {
 			have[c.Info.Name] = true
 		}
 		var shadowed []string
@@ -168,11 +173,11 @@ func (s *Server) kubeconfigRoutes(mux *http.ServeMux) {
 		if len(name) > 60 {
 			name = name[:60]
 		}
-		if err := os.MkdirAll(s.kcDir(), 0o700); err != nil {
+		if err := os.MkdirAll(s.kcDir(r), 0o700); err != nil {
 			writeErr(w, 500, err)
 			return
 		}
-		p := filepath.Join(s.kcDir(), name+"-"+randHex(4)+".yaml")
+		p := filepath.Join(s.kcDir(r), name+"-"+randHex(4)+".yaml")
 		if err := os.WriteFile(p, []byte(req.YAML), 0o600); err != nil {
 			writeErr(w, 500, err)
 			return
@@ -182,12 +187,16 @@ func (s *Server) kubeconfigRoutes(mux *http.ServeMux) {
 			writeErr(w, 400, err)
 			return
 		}
-		s.setKubeconfigs(append(s.currentPaths(), p))
+		s.setKubeconfigs(r, append(s.currentPaths(r), p))
 		writeJSON(w, 200, map[string]any{"ok": true, "contexts": len(f.Contexts), "shadowed": shadowed})
 	})
 
 	// a kubeconfig file already on the machine KubeLamp runs on: {path}
 	mux.HandleFunc("POST /api/kubeconfig/path", func(w http.ResponseWriter, r *http.Request) {
+		if !s.isAdmin(r) {
+			writeErr(w, 403, errors.New("only admins can load kubeconfig files from the server's disk; upload or paste yours instead"))
+			return
+		}
 		var req struct {
 			Path string `json:"path"`
 		}
@@ -213,20 +222,20 @@ func (s *Server) kubeconfigRoutes(mux *http.ServeMux) {
 			writeErr(w, 400, err)
 			return
 		}
-		all := s.currentPaths()
+		all := s.currentPaths(r)
 		for _, p := range paths {
 			if !contains(all, p) {
 				all = append(all, p)
 			}
 		}
-		s.setKubeconfigs(all)
+		s.setKubeconfigs(r, all)
 		writeJSON(w, 200, map[string]any{"ok": true})
 	})
 
 	// stop using one kubeconfig; uploaded copies are deleted
 	mux.HandleFunc("DELETE /api/kubeconfig", func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Query().Get("path")
-		all := s.currentPaths()
+		all := s.currentPaths(r)
 		if !contains(all, p) {
 			writeErr(w, 404, errors.New("that kubeconfig isn't loaded"))
 			return
@@ -237,10 +246,10 @@ func (s *Server) kubeconfigRoutes(mux *http.ServeMux) {
 				keep = append(keep, x)
 			}
 		}
-		if s.isUploaded(p) {
+		if s.isUploaded(r, p) {
 			_ = os.Remove(p)
 		}
-		s.setKubeconfigs(keep)
+		s.setKubeconfigs(r, keep)
 		writeJSON(w, 200, map[string]any{"ok": true})
 	})
 }

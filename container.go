@@ -2,12 +2,9 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -41,44 +38,6 @@ func applyEnv(fs *flag.FlagSet, getenv func(string) string) error {
 		return errors.New(strings.Join(errs, "; "))
 	}
 	return nil
-}
-
-// resolveToken decides the access token when KUBELAMP listens beyond localhost:
-// -token / KUBELAMP_TOKEN, else -token-file (a mounted Secret), else the token saved in the
-// data folder, else a new random one that is saved there, so the URL survives restarts.
-func resolveToken(token, tokenFile, dataDir string) (tok, source string, err error) {
-	if token != "" {
-		return token, "flag", nil
-	}
-	if tokenFile != "" {
-		b, err := os.ReadFile(tokenFile)
-		if err != nil {
-			return "", "", fmt.Errorf("token file: %w", err)
-		}
-		if t := strings.TrimSpace(string(b)); t != "" {
-			return t, "file", nil
-		}
-		return "", "", fmt.Errorf("token file %s is empty", tokenFile)
-	}
-	saved := filepath.Join(dataDir, "token")
-	b0, rerr := os.ReadFile(saved)
-	if rerr == nil {
-		if t := strings.TrimSpace(string(b0)); t != "" {
-			return t, "saved", nil
-		}
-	} else if !errors.Is(rerr, os.ErrNotExist) {
-		log.Printf("warning: cannot read the saved token (%v); using a new one for this run. Was /data created by another user id?", rerr)
-	}
-	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	t := hex.EncodeToString(b)
-	if err := os.MkdirAll(dataDir, 0o700); err == nil {
-		if os.WriteFile(saved, []byte(t+"\n"), 0o600) == nil {
-			return t, "new-saved", nil
-		}
-	}
-	log.Printf("warning: cannot save the access token in %s; it will change on every restart. Set -token, KUBELAMP_TOKEN or -token-file, or make the folder writable", dataDir)
-	return t, "new", nil
 }
 
 const serviceAccountDir = "/var/run/secrets/kubernetes.io/serviceaccount"

@@ -545,6 +545,7 @@ type ConnResult struct {
 
 type ConnJob struct {
 	ID       string
+	owner    string // user who started it; other users get 404
 	Ctx      string
 	NS       string
 	Started  time.Time
@@ -1041,7 +1042,7 @@ func (s *Server) connRoutes(mux *http.ServeMux) {
 			writeErr(w, 400, fmt.Errorf("%d pods × %d checks is over the limit of %d probes: narrow the targets or pods", len(src), len(checks), connMaxProbes))
 			return
 		}
-		j := &ConnJob{ID: newJobID(), Ctx: r.URL.Query().Get("ctx"), NS: req.NS, Started: time.Now(), State: "preparing",
+		j := &ConnJob{ID: newJobID(), owner: reqUserID(r), Ctx: r.URL.Query().Get("ctx"), NS: req.NS, Started: time.Now(), State: "preparing",
 			Checks: checks, Total: len(src) * len(checks), PolicyOn: req.PolicyCheck, Timeout: req.Timeout, Parallel: req.Parallel, pods: src}
 		for _, p := range src {
 			j.Sources = append(j.Sources, sourceView(p))
@@ -1055,7 +1056,7 @@ func (s *Server) connRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /api/tools/conntest/{id}", func(w http.ResponseWriter, r *http.Request) {
 		j := connMgr.get(r.PathValue("id"))
-		if j == nil {
+		if j == nil || j.owner != reqUserID(r) {
 			writeErr(w, 404, errors.New("test not found (it may have expired)"))
 			return
 		}
@@ -1065,7 +1066,7 @@ func (s *Server) connRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("DELETE /api/tools/conntest/{id}", func(w http.ResponseWriter, r *http.Request) {
 		j := connMgr.get(r.PathValue("id"))
-		if j == nil {
+		if j == nil || j.owner != reqUserID(r) {
 			writeErr(w, 404, errors.New("test not found"))
 			return
 		}

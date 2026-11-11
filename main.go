@@ -19,16 +19,18 @@ const version = "1.5.0"
 
 func main() {
 	kubeconfig := flag.String("kubeconfig", "", "optional: path(s) to kubeconfig files to load at start; separate several with "+string(os.PathListSeparator)+". Without it KubeLamp asks for a kubeconfig in the browser")
-	addr := flag.String("addr", "127.0.0.1:7080", "listen address; use 0.0.0.0:7080 to share on the network (a token is then required)")
-	token := flag.String("token", "", "access token required when listening beyond localhost (auto-generated if empty)")
+	addr := flag.String("addr", "127.0.0.1:7080", "listen address; use 0.0.0.0:7080 to share on the network")
+	adminUser := flag.String("admin-user", "", "name of the admin created on first start (default admin); ignored once users exist")
+	adminPwd := flag.String("admin-password", "", "password of the admin created on first start (default admin, which must be changed at first login); prefer the KUBELAMP_ADMIN_PASSWORD variable")
+	token := flag.String("token", "", "removed: KubeLamp now has user accounts (ignored)")
 	noBrowser := flag.Bool("no-browser", false, "don't open the browser on start")
 	readOnly := flag.Bool("read-only", false, "disable every write: edit, delete, scale, restart, exec and the shell")
 	allowShell := flag.Bool("allow-shell", false, "allow the local shell even when listening beyond localhost (dangerous)")
 	maxDown := flag.Int("max-download", 256, "largest file or folder (MiB) the file transfer tool may download from a pod (max 2048)")
 	maxUp := flag.Int("max-upload", 100, "largest file (MiB) the file transfer tool may upload into a pod")
 	xferRate := flag.Int("transfer-rate", 20, "file transfer speed limit in MiB/s per transfer, so large copies don't load the API server or the node")
-	dataFlag := flag.String("data", "", "folder for settings and the saved access token (default: your user config folder; /data in the Docker image)")
-	tokenFile := flag.String("token-file", "", "read the access token from this file, e.g. a mounted Kubernetes Secret")
+	dataFlag := flag.String("data", "", "folder for users, their kubeconfigs and settings (default: your user config folder; /data in the Docker image)")
+	tokenFile := flag.String("token-file", "", "removed: KubeLamp now has user accounts (ignored)")
 	inCluster := flag.String("in-cluster", "false", "also connect to the Kubernetes cluster KubeLamp runs in, with its pod's service account: false (default), true, or auto (only when running in a pod)")
 	clusterName := flag.String("cluster-name", "in-cluster", "name shown for the in-cluster connection")
 	healthcheck := flag.Bool("healthcheck", false, "check that the KubeLamp listening on -addr answers /healthz, then exit (for Docker HEALTHCHECK)")
@@ -61,26 +63,17 @@ func main() {
 		migrateLegacyData(filepath.Join(cfgDir, "KubeDeck"), dataDir)
 	}
 
-	st := loadSettings(dataDir)
-	// kubeconfigs come from the user: the ones added in the browser earlier (kept in
-	// the data folder), or -kubeconfig. Nothing is picked up from ~/.kube or $KUBECONFIG.
+	// kubeconfigs come from each user, in the browser. -kubeconfig is only a starting
+	// point for the admin. Nothing is picked up from ~/.kube or $KUBECONFIG.
 	paths := splitPaths(*kubeconfig)
-	if len(paths) == 0 {
-		paths = existingPaths(st.Kubeconfig)
-	}
 
 	host, _, err := net.SplitHostPort(*addr)
 	if err != nil {
 		log.Fatalf("bad -addr: %v", err)
 	}
 	local := host == "127.0.0.1" || host == "localhost" || host == "::1"
-	tokenSource := ""
-	if !local || *token != "" || *tokenFile != "" {
-		t, src, err := resolveToken(*token, *tokenFile, dataDir)
-		if err != nil {
-			log.Fatal(err)
-		}
-		*token, tokenSource = t, src
+	if *token != "" || *tokenFile != "" {
+		log.Printf("warning: -token / -token-file (KUBELAMP_TOKEN, KUBELAMP_TOKEN_FILE) are no longer used: sign in with a user account")
 	}
 
 	// in-cluster: use the pod's service account (Deployment of KubeLamp inside the cluster)
@@ -114,10 +107,11 @@ func main() {
 	}
 	fixPath()
 
-	reg := &Registry{inCluster: ic}
-	reg.Load(paths, st.Access)
-
-	srv := &Server{reg: reg, dataDir: dataDir, token: *token, localOnly: local, readOnly: *readOnly, allowShell: *allowShell,
+	users, err := openUserStore(dataDir, *adminUser, *adminPwd, ic, paths)
+	if err != nil {
+		log.Fatalf("users: %v", err)
+	}
+	srv := &Server{reg: &Registry{}, users: users, dataDir: dataDir, localOnly: local, readOnly: *readOnly, allowShell: *allowShell,
 		ftMaxDown: int64(*maxDown) << 20, ftMaxUp: int64(*maxUp) << 20, ftRate: int64(*xferRate) << 20}
 	srv.quit = func() {
 		log.Println("quit requested from the UI")
@@ -131,27 +125,12 @@ func main() {
 	shown := strings.Replace(ln.Addr().String(), "0.0.0.0", "localhost", 1)
 	shown = strings.Replace(shown, "[::]", "localhost", 1)
 	u := "http://" + shown + "/"
-	shownURL := u
-	if *token != "" {
-		u += "?token=" + *token
-		shownURL = u
-		if tokenSource == "flag" || tokenSource == "file" {
-			shownURL += " (token from " + map[string]string{"flag": "-token / KUBELAMP_TOKEN", "file": "the token file"}[tokenSource] + ", not printed)"
-			shownURL = strings.Replace(shownURL, "?token="+*token, "?token=…", 1)
-		} else if tokenSource == "new-saved" || tokenSource == "saved" {
-			shownURL += "\n              (token saved in " + filepath.Join(dataDir, "token") + ")"
-		}
-	}
 	mode := "read-write"
 	if *readOnly {
 		mode = "read-only"
 	}
-	src := strings.Join(paths, string(os.PathListSeparator))
-	if ic != nil {
-		src = strings.TrimPrefix(src+", in-cluster ("+ic.Server+")", ", ")
-	}
-	fmt.Printf("KubeLamp %s\n  clusters:   %s\n  open:       %s\n  (%s; press Ctrl+C to stop)\n",
-		version, src, shownURL, mode)
+	fmt.Printf("KubeLamp %s\n  users:      %s\n  open:       %s  (sign in; each user adds their own kubeconfigs)\n  (%s; press Ctrl+C to stop)\n",
+		version, filepath.Join(dataDir, "users.json"), u, mode)
 	if !*noBrowser {
 		go func() { time.Sleep(300 * time.Millisecond); _ = openBrowser(u) }()
 	}
@@ -161,7 +140,7 @@ func main() {
 
 func existingInstance(addr string) (string, bool) {
 	c := &http.Client{Timeout: 1500 * time.Millisecond}
-	resp, err := c.Get("http://" + addr + "/api/kubeconfig")
+	resp, err := c.Get("http://" + addr + "/healthz")
 	if err != nil {
 		return "", false
 	}
@@ -180,6 +159,7 @@ func replaceOlder(addr string) bool {
 	c := &http.Client{Timeout: 2 * time.Second}
 	req, _ := http.NewRequest(http.MethodPost, "http://"+addr+"/api/quit", strings.NewReader("{}"))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-KubeLamp-Replace", version)
 	if resp, err := c.Do(req); err == nil {
 		resp.Body.Close()
 	}

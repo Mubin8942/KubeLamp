@@ -34,6 +34,15 @@ function viewSettings() {
             <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary">Primary</button><button class="btn">Default</button><button class="btn on">Selected</button><input type="search" placeholder="Focus me"></div></div></div>
       </section>
       <section class="card set-sec">
+        <div class="set-row"><div class="set-label"><h3>Account</h3><p>Signed in as <b>${esc(info.user?.username || '')}</b> (${info.admin ? 'admin' : 'user'}).</p></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="setPw">Change password</button><button class="btn ghost" id="setOut">Sign out</button></div></div>
+      </section>
+      ${info.admin ? `<section class="card set-sec">
+        <div class="set-row set-users"><div class="set-label"><h3>Users</h3><p>Everyone signs in with their own account and adds their own kubeconfigs; nobody sees another user's clusters. New users and reset passwords are temporary: they must be changed at first sign-in.</p>
+          <button class="btn primary" id="usersAdd" style="margin-top:12px">Add user</button></div>
+          <div id="usersBox"><span class="muted">Loading…</span></div></div>
+      </section>` : ''}
+      <section class="card set-sec">
         <div class="set-row"><div class="set-label"><h3>About</h3><p>KubeLamp ${esc(info.version || '')}</p></div>
           <div class="kvgrid"><span>Mode</span><span>${info.readOnly ? 'Read-only' : 'Read & write'}</span><span>Local shell</span><span>${info.shell ? 'Enabled' : 'Disabled'}</span><span>Platform</span><span>${esc(info.os || '—')}</span></div></div>
       </section>
@@ -64,6 +73,9 @@ function viewSettings() {
   $('#setHex').addEventListener('blur', sync);
   $('#setGlass').addEventListener('change', e => { Theme.set({ glass: e.target.checked }); sync(); });
   $('#setReset').addEventListener('click', () => { Theme.reset(); sync(); toast('Appearance reset to defaults'); });
+  $('#setPw').addEventListener('click', () => Auth.changePassword(info.user || {}, false));
+  $('#setOut').addEventListener('click', () => Auth.signOut());
+  if (info.admin) usersSection($('#usersBox'));
   sync();
 }
 

@@ -191,6 +191,7 @@ $('#nsPicker').addEventListener('click', async () => {
     ...nss.map(n => ({ label: n.name, on: n.name === S.ns, sub: n.pods ? `${n.pods} pods` : '', run: () => setNs(route.ctx, n.name) }))],
   { search: true, placeholder: 'Find a namespace' });
 });
+$('#userBtn').addEventListener('click', () => Auth.menu($('#userBtn')));
 $('#stopBtn').addEventListener('click', async () => {
   const ok = await modal({ title: 'Stop the KubeLamp server?', body: '<p>Dashboards, open terminals and log streams close. Open the KubeLamp app (or run <code>kubelamp</code>) to start it again.</p>',
     actions: [{ label: 'Cancel', value: false }, { label: 'Stop server', kind: 'danger solid', value: true, submit: true }] });
@@ -285,10 +286,14 @@ function live(ms, fn) {
 
 // ------------------------------------------------------------------ boot
 (async () => {
+  await Auth.ready(); // sign in (and replace a temporary password) before anything loads
   try {
     S.info = await api('info');
     $('#roBadge').hidden = !S.info.readOnly;
-    if (!S.info.shell) $('#termNew').title = S.info.readOnly ? 'Shell disabled in read-only mode' : 'Shell only available on localhost';
+    if (!S.info.shell) $('#termNew').title = S.info.readOnly ? 'Shell disabled in read-only mode' : !S.info.admin ? 'The local shell is for admins only' : 'Shell only available on localhost';
+    $('#stopBtn').hidden = !S.info.admin;
+    const u = S.info.user;
+    if (u) { $('#userBtn').hidden = false; $('#userName').textContent = u.username; $('#userInit').textContent = u.username.slice(0, 1).toUpperCase(); }
   } catch {}
   await loadClusters();
   navigate();

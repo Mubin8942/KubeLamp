@@ -332,7 +332,7 @@ func (s *Server) resourceRoutes(mux *http.ServeMux) {
 			writeErr(w, 502, errors.New(friendlyErr(err)))
 			return
 		}
-		writeJSON(w, 200, map[string]any{"resources": res, "readOnly": s.readOnly, "shell": s.shellAllowed()})
+		writeJSON(w, 200, map[string]any{"resources": res, "readOnly": s.readOnly, "shell": s.shellAllowed(r)})
 	})
 
 	mux.HandleFunc("GET /api/table", func(w http.ResponseWriter, r *http.Request) {
@@ -405,7 +405,7 @@ func (s *Server) resourceRoutes(mux *http.ServeMux) {
 			writeErr(w, 400, err)
 			return
 		}
-		c := s.reg.Get(req.Ctx)
+		c := s.R(r).Get(req.Ctx)
 		if c == nil || c.client == nil {
 			writeErr(w, 404, errors.New("unknown context"))
 			return
@@ -448,7 +448,7 @@ func (s *Server) resourceRoutes(mux *http.ServeMux) {
 			return
 		}
 		ref := refFromQuery(r.URL.Query())
-		c := s.reg.Get(ref.Ctx)
+		c := s.R(r).Get(ref.Ctx)
 		if c == nil || c.client == nil {
 			writeErr(w, 404, errors.New("unknown context"))
 			return
@@ -481,7 +481,7 @@ func (s *Server) resourceRoutes(mux *http.ServeMux) {
 			writeErr(w, 400, err)
 			return
 		}
-		c := s.reg.Get(req.Ctx)
+		c := s.R(r).Get(req.Ctx)
 		if c == nil || c.client == nil {
 			writeErr(w, 404, errors.New("unknown context"))
 			return

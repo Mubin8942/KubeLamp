@@ -216,7 +216,7 @@ const Term = (() => {
 
   function newShell(ctx = parseRoute().ctx) {
     if (S.info && !S.info.shell) {
-      toast(S.info.readOnly ? 'The shell is disabled in read-only mode.' : 'The shell is only available when KubeLamp listens on localhost.', 'err');
+      toast(S.info.readOnly ? 'The shell is disabled in read-only mode.' : !S.info.admin ? 'The local shell runs on the KubeLamp server, so it is for admins only. Use “Exec” on a pod instead.' : 'The shell is only available when KubeLamp listens on localhost.', 'err');
       return;
     }
     const n = tabs.filter(t => t.kind === 'shell').length + 1;
