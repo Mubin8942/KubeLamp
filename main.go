@@ -18,7 +18,7 @@ import (
 const version = "1.5.0"
 
 func main() {
-	kubeconfig := flag.String("kubeconfig", "", "path(s) to kubeconfig files (default: $KUBECONFIG or ~/.kube/config); separate several with "+string(os.PathListSeparator))
+	kubeconfig := flag.String("kubeconfig", "", "optional: path(s) to kubeconfig files to load at start; separate several with "+string(os.PathListSeparator)+". Without it KubeLamp asks for a kubeconfig in the browser")
 	addr := flag.String("addr", "127.0.0.1:7080", "listen address; use 0.0.0.0:7080 to share on the network (a token is then required)")
 	token := flag.String("token", "", "access token required when listening beyond localhost (auto-generated if empty)")
 	noBrowser := flag.Bool("no-browser", false, "don't open the browser on start")
@@ -62,13 +62,11 @@ func main() {
 	}
 
 	st := loadSettings(dataDir)
+	// kubeconfigs come from the user: the ones added in the browser earlier (kept in
+	// the data folder), or -kubeconfig. Nothing is picked up from ~/.kube or $KUBECONFIG.
 	paths := splitPaths(*kubeconfig)
 	if len(paths) == 0 {
-		if len(st.Kubeconfig) > 0 {
-			paths = st.Kubeconfig
-		} else {
-			paths = splitPaths(defaultKubeconfig())
-		}
+		paths = existingPaths(st.Kubeconfig)
 	}
 
 	host, _, err := net.SplitHostPort(*addr)
@@ -94,8 +92,6 @@ func main() {
 				log.Fatalf("in-cluster: %v", err)
 			}
 			ic = nil
-		} else if *kubeconfig == "" && len(st.Kubeconfig) == 0 {
-			paths = existingPaths(paths) // the image's default /kube/config is usually not mounted then
 		}
 	}
 

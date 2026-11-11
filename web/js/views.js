@@ -101,7 +101,7 @@ function certCard(c) {
 async function viewHome() {
   const kc = await api('kubeconfig');
   S.kc = kc;
-  const sep = navigator.platform.startsWith('Win') ? ';' : ':';
+  if (kc.needsSetup) return viewConnect(kc);
   const render = async () => {
     await loadClusters(); renderNav({});
     const cards = S.clusters.map(c => {
@@ -125,7 +125,7 @@ async function viewHome() {
         <div style="display:flex;gap:4px;flex-direction:column;align-items:flex-end">${c.version ? `<span class="tag">${esc(c.version)}</span>` : ''}${c.current ? '<span class="tag cur">current</span>' : ''}${isNs(c) ? '<span class="tag" title="Role/RoleBinding access">namespace-scoped</span>' : ''}</div></div>
         ${body}</div>`;
     }).join('');
-    $('#cards').innerHTML = cards || `<div class="empty-state"><h2>No clusters yet</h2><p>Enter the path to your kubeconfig above.</p></div>`;
+    $('#cards').innerHTML = cards || `<div class="empty-state"><h2>No clusters yet</h2><p>The loaded kubeconfig has no contexts.</p><button class="btn primary" type="button" onclick="openKubeconfigs()">Add a kubeconfig</button></div>`;
     $$('.ccard', main).forEach(el => el.addEventListener('click', () => { location.hash = ctxPath(el.dataset.ctx) + '/overview'; }));
     $$('[data-access]', main).forEach(b => b.addEventListener('click', e => { e.stopPropagation(); openAccess(b.dataset.access); }));
     const ok = S.clusters.filter(c => c.status === 'ok' || c.status === 'partial').length;
@@ -133,19 +133,10 @@ async function viewHome() {
   };
   main.innerHTML = `
     <div class="page-head"><div><h1>All clusters</h1><div class="sub"><span id="kcStat"></span></div></div>
-      <div class="right"><button class="btn" id="refreshAll"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>Refresh</button></div></div>
-    <form class="kcbar" id="kcForm"><label for="kcPath">Kubeconfig</label>
-      <input type="text" id="kcPath" spellcheck="false" value="${esc((kc.paths || []).join(sep))}" placeholder="${esc(kc.default)}">
-      <button class="btn primary" type="submit">Load</button></form>
+      <div class="right"><button class="btn" id="kcManage">${KC_ICON.file}Kubeconfigs</button><button class="btn" id="refreshAll"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>Refresh</button></div></div>
     ${kc.error ? `<div class="banner err"><b>Kubeconfig problem.</b><span>${esc(kc.error)}</span></div>` : ''}
     <div class="grid g3" id="cards"></div>`;
-  $('#kcForm').addEventListener('submit', async e => {
-    e.preventDefault();
-    const r = await fetch('/api/kubeconfig', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paths: $('#kcPath').value }) });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) { alert(d.error || 'Could not load kubeconfig'); return; }
-    navigate();
-  });
+  $('#kcManage').onclick = () => openKubeconfigs();
   $('#refreshAll').onclick = async () => { await fetch('/api/refresh', { method: 'POST' }); setTimeout(render, 1500); };
   await live(5000, render);
 }

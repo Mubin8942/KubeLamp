@@ -140,14 +140,17 @@ Preferences are stored in the browser.
    ```sh
    # Windows
    kubelamp.exe
-   kubelamp.exe -kubeconfig C:\Users\you\.kube\config
 
    # Linux / macOS
    ./kubelamp
-   ./kubelamp -kubeconfig ~/.kube/config:~/.kube/eks-config
    ```
 
-3. Your browser opens at `http://127.0.0.1:7080`. You can also change the kubeconfig path at the top of the **All clusters** page. It's remembered between runs.
+3. Your browser opens at `http://127.0.0.1:7080` with **Connect your clusters**. KubeLamp reads no kubeconfig on its own (not `~/.kube/config`, not `$KUBECONFIG`): you give it one by
+   - **uploading** one or more kubeconfig files (drag and drop),
+   - **pasting** the YAML, or
+   - typing the **path** of a kubeconfig file on the machine KubeLamp runs on.
+
+   Uploaded and pasted kubeconfigs are stored in KubeLamp's data folder (mode 600) and come back on the next start. **All clusters → Kubeconfigs** lists them, removes them, or adds more. `-kubeconfig` still loads files at start if you want that.
 
 ### macOS app
 
@@ -167,7 +170,7 @@ To build the DMG yourself, run `python3 packaging/macos/build_dmg.py --version 1
 
 | Flag | Default | |
 |---|---|---|
-| `-kubeconfig` | `$KUBECONFIG` or `~/.kube/config` | one or more files (separate with `:` on Linux/macOS, `;` on Windows) |
+| `-kubeconfig` | none: asked in the browser | optional files to load at start (separate with `:` on Linux/macOS, `;` on Windows) |
 | `-addr` | `127.0.0.1:7080` | listen address. On anything other than localhost, an access token is required and printed at start |
 | `-token` | auto | set your own token when sharing with `-addr 0.0.0.0:7080`. Otherwise a token is generated once and kept in the data folder, so the URL stays the same after restarts |
 | `-token-file` | | read the token from a file (Docker/Kubernetes secret); it is not printed |
@@ -189,17 +192,15 @@ Images for amd64 and arm64 on GitHub Container Registry and Docker Hub:
 One all-in-one image, `kubelamp:<version>` / `:latest`: Alpine, non-root, with `kubectl`, the AWS CLI, `bash`, `curl` and `jq`. It covers kubeconfigs with certificates or tokens, EKS kubeconfigs that run `aws eks get-token`, in-cluster use, and the local shell. Build it yourself with `docker build -t kubelamp .`.
 
 ```sh
-docker run -d --name kubelamp -p 7080:7080 \
-  --user "$(id -u):$(id -g)" \
-  -v ~/.kube:/kube:ro -v kubelamp-data:/data \
-  ghcr.io/zanayeem/kubelamp:latest
+docker run -d --name kubelamp -p 7080:7080 -v kubelamp-data:/data ghcr.io/zanayeem/kubelamp:latest
 docker logs kubelamp        # the URL with the access token
 ```
 
-- **`--user $(id -u):$(id -g)`** lets the container read your kubeconfig, which is normally readable only by you (mode 600). Without it you will see `permission denied` for `/kube/config` in the logs.
-- **Mount the whole `~/.kube` folder**, so certificate files the kubeconfig points to (`certificate-authority: ca.crt`) are found. Absolute paths to files elsewhere (`/home/you/certs/ca.crt`) must exist inside the container too; kubeconfigs with embedded `*-data` fields just work.
+- **Open the URL and upload or paste your kubeconfig.** It is kept in the `/data` volume, so keep that volume to keep your clusters across restarts.
+- **Uploaded kubeconfigs must be self-contained** when KubeLamp is reachable over the network: certificates embedded (`*-data` fields), no `tokenFile`, and logins only through known plugins (`aws`, `kubelogin`, `gke-gcloud-auth-plugin`, `gcloud`, `az`, `doctl`, `oci`, `kubectl`). This keeps anyone with the URL from running commands or reading files in the container. On `127.0.0.1` any kubeconfig is accepted.
+- **Prefer a mounted file?** Mount it (`-v ~/.kube:/kube:ro --user "$(id -u):$(id -g)"`) and enter `/kube/config` under *File path*.
 - **EKS:** mount your AWS credentials: `-v ~/.aws:/home/kubelamp/.aws:ro` (and `-e AWS_PROFILE=…` if needed).
-- **Defaults in the image:** listens on `0.0.0.0:7080` with a token (kept in `/data/token`), reads `/kube/config`, no browser, local shell off. The image has a health check; `/healthz` answers without a token.
+- **Defaults in the image:** listens on `0.0.0.0:7080` with a token (kept in `/data/token`), asks for a kubeconfig in the browser, no browser, local shell off. The image has a health check; `/healthz` answers without a token.
 - **Docker Compose:** see `docker-compose.yml`.
 
 ### Inside Kubernetes
@@ -269,7 +270,7 @@ Logs by Deployment labels need only `pods` (list) and `pods/log` (get) in that n
 
 Each cluster gets a background collector. Every refresh it makes one paginated `list` call per resource, plus one call to metrics-server, and keeps the result as an in-memory snapshot. Every page is served from that snapshot, so the UI is instant and the API server load stays constant no matter how many browser tabs are open.
 
-Usage history (1 hour) is kept in small ring buffers in memory, so nothing is written to disk except your last-used kubeconfig path, in your user config folder.
+Usage history (1 hour) is kept in small ring buffers in memory, so nothing is written to disk except the kubeconfigs you added (uploaded copies and file paths), in KubeLamp's data folder.
 
 Logs are streamed straight from the kubelet through the API server, using Server-Sent Events to the browser.
 

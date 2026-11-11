@@ -133,14 +133,6 @@ func splitPaths(s string) []string {
 	return out
 }
 
-func defaultKubeconfig() string {
-	if v := os.Getenv("KUBECONFIG"); v != "" {
-		return v
-	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".kube", "config")
-}
-
 // loadKubeconfig merges files using kubectl's rule: the first file to define a name wins.
 func loadKubeconfig(paths []string) ([]resolvedContext, error) {
 	clusters := map[string]kcCluster{}

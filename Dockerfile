@@ -34,8 +34,8 @@ COPY --from=build /out/kubelamp /usr/local/bin/kubelamp
 ENV HOME=/home/kubelamp \
     KUBELAMP_ADDR=0.0.0.0:7080 \
     KUBELAMP_NO_BROWSER=true \
-    KUBELAMP_DATA=/data \
-    KUBECONFIG=/kube/config
+    KUBELAMP_DATA=/data
+# No kubeconfig is preset: KubeLamp asks for one in the browser and keeps it in /data.
 USER 65532:65532
 WORKDIR /home/kubelamp
 EXPOSE 7080

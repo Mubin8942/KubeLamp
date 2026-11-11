@@ -86,7 +86,8 @@ func (s *Server) routes() http.Handler {
 			ctxs = append(ctxs, c.Info)
 		}
 		writeJSON(w, 200, map[string]any{"paths": paths, "error": loadErr, "contexts": ctxs,
-			"default": defaultKubeconfig(), "version": version})
+			"sources": s.kubeconfigSources(), "inCluster": s.reg.inCluster != nil,
+			"needsSetup": len(paths) == 0 && s.reg.inCluster == nil, "local": s.localOnly, "version": version})
 	})
 
 	mux.HandleFunc("PUT /api/kubeconfig", func(w http.ResponseWriter, r *http.Request) {
@@ -444,6 +445,7 @@ func (s *Server) routes() http.Handler {
 	})
 
 	s.resourceRoutes(mux)
+	s.kubeconfigRoutes(mux)
 	s.routeRoutes(mux)
 	s.terminalRoutes(mux)
 	s.pvcRoutes(mux)

@@ -721,3 +721,33 @@ html.glass .btn.on { background: var(--sel); }
 html.glass .toast { border-left-color: var(--good); } html.glass .toast.err { border-left-color: var(--critical); }
 html.glass .banner { border-left-color: var(--warning); } html.glass .banner.err { border-left-color: var(--critical); } html.glass .banner.info { border-left-color: var(--accent); }
 .rt-sec .chip { white-space: nowrap; overflow-wrap: normal; }
+
+/* ---------- Kubeconfig from the user (first run + manager) */
+.kc-welcome { max-width: 640px; margin: 4vh auto 40px; text-align: center; }
+.kc-welcome img { border-radius: 14px; box-shadow: 0 10px 30px rgba(var(--accent-rgb, 50,108,229), .3); }
+.kc-welcome h1 { font-size: 24px; margin: 14px 0 6px; font-weight: 600; letter-spacing: -.3px; }
+.kc-welcome > p { margin: 0 auto 22px; max-width: 520px; }
+.kc-card { text-align: left; padding: 18px 20px; }
+.kc-tabs { margin-bottom: 14px; display: flex; width: 100%; }
+.kc-tabs button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; }
+.kc-tabs svg, .kc-drop svg, .kc-src > svg, #kcManage svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.kc-drop { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 34px 16px; border: 1.5px dashed var(--line-2); border-radius: 12px; cursor: pointer; text-align: center; position: relative; transition: border-color .15s, background .15s; }
+.kc-drop svg { width: 28px; height: 28px; color: var(--accent-ink); }
+.kc-drop:hover, .kc-drop.over { border-color: var(--accent); background: var(--sel); }
+.kc-drop input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.kc-pane { display: flex; flex-direction: column; gap: 10px; }
+.kc-pane .btn { align-self: flex-start; }
+.kc-f { display: flex; flex-direction: column; gap: 5px; font-weight: 500; }
+.kc-f textarea { font: 12.5px/1.45 var(--mono); resize: vertical; }
+.kc-f input { font-family: var(--mono); font-size: 12.5px; }
+.kc-hint { font-size: 12px; margin: 10px 0 0; }
+.kc-msg { margin-top: 10px; font-size: 12.5px; overflow-wrap: anywhere; }
+.kc-msg:empty { display: none; }
+.kc-msg.ok { color: var(--good); } .kc-msg.err { color: var(--critical); }
+.kc-list { display: flex; flex-direction: column; gap: 8px; }
+.kc-src { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.kc-src > svg { margin-top: 2px; color: var(--muted); }
+.kc-src-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.kc-src-main > span { font-size: 12px; overflow-wrap: anywhere; }
+.kc-sub { margin: 6px 0 0; font-size: 13.5px; font-weight: 600; }
+.dlg.wide:has(.kc-list) { width: 640px; }

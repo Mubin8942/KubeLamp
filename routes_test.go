@@ -66,3 +66,33 @@ func TestIngressView(t *testing.T) {
 		t.Fatalf("bad view %+v", v)
 	}
 }
+
+func TestCheckUploadedKubeconfig(t *testing.T) {
+	ok := "contexts: [{name: a, context: {cluster: c, user: u}}]\nclusters: [{name: c, cluster: {server: https://x}}]\nusers: [{name: u, user: {token: t}}]\n"
+	if _, err := checkUploadedKubeconfig([]byte(ok), false); err != nil {
+		t.Fatalf("plain token config rejected: %v", err)
+	}
+	if _, err := checkUploadedKubeconfig([]byte("users: []\n"), true); err == nil {
+		t.Fatal("config without contexts accepted")
+	}
+	bad := map[string]string{
+		"tokenFile": "users: [{name: u, user: {tokenFile: /data/token}}]",
+		"cert file": "users: [{name: u, user: {client-key: /etc/key}}]",
+		"ca file":   "clusters: [{name: c, cluster: {certificate-authority: /etc/ca}}]",
+		"exec sh":   "users: [{name: u, user: {exec: {command: sh, args: [-c, id]}}}]",
+		"exec path": "users: [{name: u, user: {exec: {command: /tmp/aws}}}]",
+	}
+	for name, extra := range bad {
+		y := "contexts: [{name: a, context: {cluster: c, user: u}}]\n" + extra + "\n"
+		if _, err := checkUploadedKubeconfig([]byte(y), false); err == nil {
+			t.Errorf("%s: accepted from a remote browser", name)
+		}
+		if _, err := checkUploadedKubeconfig([]byte(y), true); err != nil {
+			t.Errorf("%s: rejected on localhost: %v", name, err)
+		}
+	}
+	aws := "contexts: [{name: a, context: {cluster: c, user: u}}]\nusers: [{name: u, user: {exec: {command: aws, args: [eks, get-token]}}}]\n"
+	if _, err := checkUploadedKubeconfig([]byte(aws), false); err != nil {
+		t.Fatalf("aws exec rejected: %v", err)
+	}
+}
