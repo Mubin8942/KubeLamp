@@ -128,7 +128,9 @@ async function viewResource(route) {
       <h1>${esc(title)}</h1><div class="sub"><span>${res.namespaced ? (nsActive ? `Namespace ${esc(S.ns)}` : 'All namespaces') : 'Cluster-scoped'}</span><span class="muted mono">${esc(res.version)}</span></div></div>
       <div class="right"><button class="btn ghost" id="wideBtn" title="Show every column, like kubectl -o wide">Wide</button></div></div>
     <div class="filters"><input type="search" id="rq" placeholder="Filter by name, label or any column" style="width:320px"><span class="count" id="rcount"></span></div>
-    <div class="card flush" id="rBox"><div class="muted" style="padding:16px">Loading…</div></div>`;
+    <div class="card flush" id="rBox"><div class="muted" style="padding:16px">Loading…</div></div>
+    ${resource === 'ingressroutes' && group.startsWith('traefik') ? '<div id="rtUnder"></div>' : ''}`;
+  if ($('#rtUnder')) httpRoutesUnder(ctx, $('#rtUnder'));
   let wide = false, data = null;
   const isPvc = resource === 'persistentvolumeclaims' && group === '';
   if (isPvc) {
@@ -334,6 +336,9 @@ function renderOverview(o, kind, ctx) {
       $('#pvcRe')?.addEventListener('click', () => run(true));
       run(false);
     });
+  } else if (['IngressRoute', 'HTTPRoute', 'Ingress'].includes(kind)) {
+    special = `<div class="card" id="rtDetail"><span class="muted">Loading routing…</span></div>`;
+    setTimeout(() => routeDetailCard(ctx, kind, md.namespace || '', md.name));
   } else if (kind === 'Service') {
     const sp = o.spec || {};
     special = `<div class="card"><h3>Service</h3><div class="kvgrid" style="margin-top:8px">

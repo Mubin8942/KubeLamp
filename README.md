@@ -29,7 +29,7 @@ Point it at your kubeconfig and you get one web app for all your contexts. You c
 
 **Every resource type, including CRDs.** KubeLamp asks each cluster which resource types it serves and builds the navigation from that:
 - **Workloads:** Deployments, StatefulSets, DaemonSets, Pods, Jobs, CronJobs, HPAs
-- **Network:** Services, Ingresses, Gateways, HTTPRoutes, NetworkPolicies, CiliumNetworkPolicies
+- **Network:** Services, Ingresses, Traefik IngressRoutes (with HTTPRoutes nested under them), Gateways, NetworkPolicies, CiliumNetworkPolicies
 - **Config:** ConfigMaps, Secrets, ExternalSecrets and SecretStores, quotas
 - **Storage:** PVCs, PVs, StorageClasses
 - **Access:** RBAC objects
@@ -121,6 +121,14 @@ Choosing a namespace in the top namespace picker opens its overview.
 - **Rollouts:** new pods are picked up automatically.
 - **Narrowing it down:** search, level filter, and single-pod mode.
 - **Download** the merged log as a file.
+
+**Routing overview:** *Network → Routing* shows Traefik IngressRoutes, the Gateway API HTTPRoutes beneath them, and Ingresses in one place, each as host → match → backend service (with weights, middlewares or filters, TLS and entry points or parent gateways). HTTPRoutes whose gateway hasn't accepted them or whose backends don't resolve get a red dot. The IngressRoutes list also shows the HTTPRoutes underneath, and IngressRoute, HTTPRoute and Ingress pages get a *Routing* card.
+
+**Settings and themes:** the gear in the top bar opens *Settings*:
+- **Theme:** System (follows the OS), Light or Dark.
+- **Accent colour:** Blue (default), Indigo, Purple, Pink, Red, Orange, Amber, Green, Teal, Cyan, Slate, or any colour from the colour picker or a hex value. Text colours are adjusted automatically to stay readable.
+- **Glass effect:** translucent, blurred panels over a soft accent-tinted backdrop (on by default; turn it off for flat panels).
+Preferences are stored in the browser.
 
 **Global namespace filter**, a **cluster switcher**, and a **Stop server** button in the top bar.
 

@@ -175,7 +175,7 @@ function lineChart(el, { t, series, refs = [], fmt }) {
   $('.hit', el).addEventListener('pointerleave', () => { xh.setAttribute('visibility', 'hidden'); dots.innerHTML = ''; hideTip(); });
 }
 function chartCard(id, title, caption, refs) {
-  const keys = [`<span><i style="background:var(--s1)"></i>Usage</span>`]
+  const keys = [`<span><i style="background:var(--accent)"></i>Usage</span>`]
     .concat(refs.filter(r => r.value > 0).map(r => `<span><i class="refkey"></i>${esc(r.name)}</span>`));
   return `<div class="card"><div class="card-head"><h3>${esc(title)}</h3><span class="cap">${esc(caption)}</span></div>
     <div class="legend">${keys.join('')}</div><div class="chart" id="${id}"></div></div>`;
@@ -183,8 +183,8 @@ function chartCard(id, title, caption, refs) {
 function drawUsageCharts(prefix, h, cpuRefs, memRefs) {
   const draw = () => {
     const a = $('#' + prefix + 'Cpu'), b = $('#' + prefix + 'Mem');
-    if (a) lineChart(a, { t: h.t, series: [{ name: 'Usage', data: h.cpu, color: css('--s1'), area: true }], refs: cpuRefs, fmt: fmtCPU });
-    if (b) lineChart(b, { t: h.t, series: [{ name: 'Usage', data: h.mem, color: css('--s1'), area: true }], refs: memRefs, fmt: fmtMem });
+    if (a) lineChart(a, { t: h.t, series: [{ name: 'Usage', data: h.cpu, color: css('--accent'), area: true }], refs: cpuRefs, fmt: fmtCPU });
+    if (b) lineChart(b, { t: h.t, series: [{ name: 'Usage', data: h.mem, color: css('--accent'), area: true }], refs: memRefs, fmt: fmtMem });
   };
   draw();
   S.redraw = draw;

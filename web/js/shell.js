@@ -39,9 +39,11 @@ const NAV = [
   ['Workloads', [['Deployments', 'wl:Deployment'], ['StatefulSets', 'wl:StatefulSet'], ['DaemonSets', 'wl:DaemonSet'], ['Pods', 'pods'],
     ['Jobs', ['batch', 'jobs']], ['CronJobs', ['batch', 'cronjobs']], ['ReplicaSets', ['apps', 'replicasets']],
     ['Autoscalers', ['autoscaling', 'horizontalpodautoscalers']], ['Pod disruption budgets', ['policy', 'poddisruptionbudgets']], ['Deployment logs', 'logs']]],
-  ['Network', [['Services', ['', 'services']], ['Ingresses', ['networking.k8s.io', 'ingresses']], ['Ingress classes', ['networking.k8s.io', 'ingressclasses']],
+  ['Network', [['Routing', 'routes'], ['Services', ['', 'services']], ['Ingresses', ['networking.k8s.io', 'ingresses']],
+    ['IngressRoutes', [['traefik.io', 'ingressroutes'], ['traefik.containo.us', 'ingressroutes']]],
+    ['HTTPRoutes', ['gateway.networking.k8s.io', 'httproutes'], 'sub'], ['GRPCRoutes', ['gateway.networking.k8s.io', 'grpcroutes'], 'sub'],
+    ['Ingress classes', ['networking.k8s.io', 'ingressclasses']],
     ['Gateways', ['gateway.networking.k8s.io', 'gateways']], ['Gateway classes', ['gateway.networking.k8s.io', 'gatewayclasses']],
-    ['HTTPRoutes', ['gateway.networking.k8s.io', 'httproutes']], ['GRPCRoutes', ['gateway.networking.k8s.io', 'grpcroutes']],
     ['Network policies', ['networking.k8s.io', 'networkpolicies']], ['Cilium policies', ['cilium.io', 'ciliumnetworkpolicies']],
     ['Cilium cluster policies', ['cilium.io', 'ciliumclusterwidenetworkpolicies']], ['Endpoint slices', ['discovery.k8s.io', 'endpointslices']]]],
   ['Config', [['ConfigMaps', ['', 'configmaps']], ['Secrets', ['', 'secrets']], ['ExternalSecrets', ['external-secrets.io', 'externalsecrets']],
@@ -78,8 +80,9 @@ function navModel(route) {
   const disc = S.disc[ctx];
   const has = (g, r) => !disc || disc.resources.some(x => x.group === g && x.resource === r);
   const cur = route.section === 'r' ? `r:${gv(route.args[0])}/${route.args[1]}` : route.section === 'workloads' ? 'wl:' + (route.q.kind || '') : route.section;
-  const item = (label, target) => {
+  const item = (label, target, sub) => {
     let href, key;
+    if (Array.isArray(target) && Array.isArray(target[0])) target = target.find(t => has(t[0], t[1])) || target[0]; // alternative API groups
     if (Array.isArray(target)) {
       if (!has(target[0], target[1])) return null;
       href = listHref(ctx, target[0], target[1]); key = `r:${target[0]}/${target[1]}`;
@@ -88,12 +91,14 @@ function navModel(route) {
     } else { href = `${ctxPath(ctx)}/${target}`; key = target; }
     const on = key === cur || (route.section === 'wl' && key === 'wl:' + route.args[0]) || (route.section === 'node' && key === 'nodes') || (route.section === 'pod' && key === 'pods')
       || (route.section === 'o' && key === `r:${gv(route.args[0])}/${route.args[1]}`);
-    return { label, href, on };
+    return { label, href, on, sub: !!sub };
   };
-  const groups = NAV.map(([label, items]) => ({ label, items: items.map(([l, t]) => item(l, t)).filter(Boolean) }));
+  const groups = NAV.map(([label, items]) => ({ label, items: items.map(([l, t, sub]) => item(l, t, sub)).filter(Boolean) }));
+  // HTTPRoutes/GRPCRoutes nest under IngressRoutes only when Traefik is installed
+  groups.forEach(g => g.items.forEach((it, i) => { if (it.sub && !g.items.slice(0, i).some(p => p.label === 'IngressRoutes')) it.sub = false; }));
   // custom resources: everything else the cluster serves, grouped by API group
   if (disc) {
-    const known = new Set(NAV.flatMap(([, items]) => items.filter(([, t]) => Array.isArray(t)).map(([, t]) => t.join('/'))));
+    const known = new Set(NAV.flatMap(([, items]) => items.filter(([, t]) => Array.isArray(t)).flatMap(([, t]) => Array.isArray(t[0]) ? t.map(x => x.join('/')) : [t.join('/')])));
     const crds = disc.resources.filter(r => !BUILTIN_GROUPS.has(r.group) && !known.has(r.group + '/' + r.resource));
     const byGroup = {};
     crds.forEach(r => (byGroup[r.group] = byGroup[r.group] || []).push(r));
@@ -110,10 +115,10 @@ function navModel(route) {
 function renderNav(route) {
   const nav = $('#nav'), rail = $('#rail');
   if (!route.ctx) {
-    nav.innerHTML = `<a class="nav-a on" href="#/">All clusters</a><div class="nav-h" style="cursor:default">Clusters</div>` +
+    nav.innerHTML = `<a class="nav-a ${route.page ? '' : 'on'}" href="#/">All clusters</a><div class="nav-h" style="cursor:default">Clusters</div>` +
       (S.clusters.map(c => `<a class="nav-a" href="${ctxPath(c.name)}/overview" title="${esc(c.name)}"><i class="dot ${c.status}"></i><span class="n">${esc(shortName(c.name))}</span>${c.scope === 'namespaced' ? '<span class="tag" title="Role/RoleBinding access">ns</span>' : ''}</a>`).join('')
         || '<div class="muted" style="padding:6px 10px">No contexts loaded</div>');
-    rail.innerHTML = `<a class="rail-b on" href="#/" title="All clusters">${railIcon('All clusters')}</a><div class="rail-sep"></div>` +
+    rail.innerHTML = `<a class="rail-b ${route.page ? '' : 'on'}" href="#/" title="All clusters">${railIcon('All clusters')}</a><div class="rail-sep"></div>` +
       S.clusters.map(c => `<a class="rail-b" href="${ctxPath(c.name)}/overview" title="${esc(shortName(c.name))}"><b style="font-size:12px;font-weight:600">${esc(shortName(c.name).replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase())}</b><i class="dot ${c.status}"></i></a>`).join('');
     return;
   }
@@ -125,7 +130,7 @@ function renderNav(route) {
   let html = `<a class="nav-a nav-back" href="#/"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 6l-6 6 6 6"/></svg>All clusters</a>`;
   groups.forEach(g => {
     html += group(g.label, g.items.map(i => i.head ? `<div class="muted" style="font-size:11.5px;padding:8px 10px 2px" title="${esc(i.head)}">${esc(i.head)}</div>`
-      : `<a class="nav-a ${i.on ? 'on' : ''}" href="${i.href}"><span class="n">${esc(i.label)}</span></a>`).join(''));
+      : `<a class="nav-a ${i.on ? 'on' : ''} ${i.sub ? 'sub' : ''}" href="${i.href}">${i.sub ? '<span class="nav-tree" aria-hidden="true"></span>' : ''}<span class="n">${esc(i.label)}</span></a>`).join(''));
   });
   nav.innerHTML = html;
   $$('.nav-h', nav).forEach(h => h.addEventListener('click', () => {
@@ -202,6 +207,7 @@ function parseRoute() {
   const [path, qs] = raw.split('?');
   const p = path.split('/').map(decodeURIComponent);
   const q = Object.fromEntries(new URLSearchParams(qs || ''));
+  if (p[0] === 'settings') return { page: 'settings', q };
   if (p[0] !== 'c' || !p[1]) return { q };
   return { ctx: p[1], section: p[2] || 'overview', args: p.slice(3), q };
 }
@@ -214,12 +220,14 @@ async function navigate() {
   if (route.ctx && route.ctx !== lastCtx) { loadNs(route.ctx); lastCtx = route.ctx; }
   renderTop(route);
   renderNav(route);
+  $('#setBtn').classList.toggle('on', route.page === 'settings');
   if (route.ctx && !S.disc[route.ctx]) ensureDiscovery(route.ctx).then(() => { if (parseRoute().ctx === route.ctx) renderNav(parseRoute()); });
   const views = { overview: viewOverview, nodes: viewNodes, node: viewNode, workloads: viewWorkloads, wl: viewWorkload, pods: viewPods, namespaces: viewNamespaces, nsview: viewNsOverview, tools: viewTools,
-    pod: viewPod, events: viewEvents, logs: viewLogs, r: viewResource, o: viewObject };
+    pod: viewPod, events: viewEvents, logs: viewLogs, r: viewResource, o: viewObject, routes: viewRoutes };
   main.scrollTop = 0;
   try {
-    if (!route.ctx) await viewHome();
+    if (route.page === 'settings') viewSettings();
+    else if (!route.ctx) await viewHome();
     else await (views[route.section] || viewOverview)(route);
   } catch (e) {
     if (e.name === 'AbortError') return;
