@@ -196,7 +196,7 @@ $('#stopBtn').addEventListener('click', async () => {
     actions: [{ label: 'Cancel', value: false }, { label: 'Stop server', kind: 'danger solid', value: true, submit: true }] });
   if (!ok) return;
   S.timers.forEach(clearInterval); S.abort?.abort();
-  await fetch('/api/quit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
+  await fetch(apiURL('quit'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
   document.body.innerHTML = `<div style="grid-column:1/-1;grid-row:1/-1;display:grid;place-items:center;text-align:center;color:var(--ink-2)">
     <div><h2 style="color:var(--ink);font-weight:600;margin:0 0 6px">KubeLamp has stopped</h2><p style="margin:0">Open the app again to restart it. You can close this tab.</p></div></div>`;
 });

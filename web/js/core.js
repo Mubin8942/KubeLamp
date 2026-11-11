@@ -8,10 +8,15 @@ const S = { clusters: [], kc: null, timers: [], abort: null, sort: {}, view: nul
 // ------------------------------------------------------------------ helpers
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const enc = encodeURIComponent;
+// KubeLamp may be served under a sub-path by a reverse proxy (https://host/kubelamp/):
+// every request is relative to the page's own folder, never to the site root
+const BASE = location.pathname.replace(/[^/]*$/, '');
+const apiURL = path => BASE + 'api/' + path;
+const httpErr = (r, d) => new Error(d.error || `${r.status} ${r.statusText || 'error'}${r.headers.get('content-type')?.includes('json') ? '' : ` from ${new URL(r.url).pathname} — is the reverse proxy forwarding ${BASE}api/ to KubeLamp?`}`);
 async function api(path) {
-  const r = await fetch('/api/' + path, { signal: S.abort?.signal });
+  const r = await fetch(apiURL(path), { signal: S.abort?.signal });
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.error || r.statusText);
+  if (!r.ok) throw httpErr(r, d);
   return d;
 }
 function fmtCPU(c) {
@@ -245,9 +250,9 @@ function table(id, cols, rows, opts = {}) {
 
 // ------------------------------------------------------------------ writes, dialogs, toasts, popovers
 async function send(method, path, body) {
-  const r = await fetch('/api/' + path, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const r = await fetch(apiURL(path), { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.error || r.statusText);
+  if (!r.ok) throw httpErr(r, d);
   return d;
 }
 

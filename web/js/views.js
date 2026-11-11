@@ -35,7 +35,7 @@ async function openAccess(ctx) {
   $('form', dlg).addEventListener('submit', async e => {
     e.preventDefault();
     const body = { context: ctx, mode: $('input[name=mode]:checked', dlg).value, namespaces: $('#accNs', dlg).value.split(/[\s,;]+/).filter(Boolean) };
-    const r = await fetch('/api/access', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const r = await fetch(apiURL('access'), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) { $('#accErr', dlg).textContent = d.error || 'Could not save'; return; }
     $('button[type=submit]', dlg).textContent = 'Applying…';
@@ -137,7 +137,7 @@ async function viewHome() {
     ${kc.error ? `<div class="banner err"><b>Kubeconfig problem.</b><span>${esc(kc.error)}</span></div>` : ''}
     <div class="grid g3" id="cards"></div>`;
   $('#kcManage').onclick = () => openKubeconfigs();
-  $('#refreshAll').onclick = async () => { await fetch('/api/refresh', { method: 'POST' }); setTimeout(render, 1500); };
+  $('#refreshAll').onclick = async () => { await fetch(apiURL('refresh'), { method: 'POST' }); setTimeout(render, 1500); };
   await live(5000, render);
 }
 
@@ -167,7 +167,7 @@ function bindRefresh(ctx, rerender) {
   if (a) a.onclick = () => openAccess(ctx);
   $$('[data-acc]', main).forEach(l => l.addEventListener('click', e => { e.preventDefault(); openAccess(ctx); }));
   const b = $('#refreshBtn');
-  if (b) b.onclick = async () => { b.disabled = true; await fetch('/api/refresh?ctx=' + enc(ctx), { method: 'POST' }); setTimeout(async () => { await rerender(); b.disabled = false; }, 1800); };
+  if (b) b.onclick = async () => { b.disabled = true; await fetch(apiURL('refresh?ctx=') + enc(ctx), { method: 'POST' }); setTimeout(async () => { await rerender(); b.disabled = false; }, 1800); };
 }
 
 // ------------------------------------------------------------------ OVERVIEW
@@ -720,14 +720,14 @@ async function viewLogs(route) {
     if (!ready()) return;
     const p = params();
     history.replaceState(null, '', `${ctxPath(ctx)}/logs?` + new URLSearchParams([...p].filter(([k]) => !['ctx'].includes(k))));
-    $('#ldl').href = '/api/logs/download?' + p;
+    $('#ldl').href = apiURL('logs/download?') + p;
     L.lines = []; L.buffer = []; L.pods = []; L.hidden.clear(); L.colors.clear();
     view.innerHTML = ''; $('#lpods').innerHTML = ''; sys('Connecting…');
     $('#lstate').className = ''; $('#lstate').textContent = 'connecting…';
     const ctrl = new AbortController(); L.ctrl = ctrl;
     S.abort.signal.addEventListener('abort', () => ctrl.abort());
     let resp;
-    try { resp = await fetch('/api/logs?' + p, { signal: ctrl.signal }); }
+    try { resp = await fetch(apiURL('logs?') + p, { signal: ctrl.signal }); }
     catch (e) { if (e.name !== 'AbortError') { view.innerHTML = ''; sys('Connection failed: ' + e.message); } return; }
     if (!resp.ok) {
       const d = await resp.json().catch(() => ({}));

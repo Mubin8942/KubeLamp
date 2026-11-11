@@ -19,7 +19,7 @@ const Term = (() => {
     black: '#1b2430', red: '#ef6b6b', green: '#4cc38a', yellow: '#e5b84a', blue: '#6ea0ff', magenta: '#c792ea', cyan: '#56c8d8', white: '#d5dde7',
     brightBlack: '#5c6b7d', brightRed: '#ff8a8a', brightGreen: '#6fdca4', brightYellow: '#f2cc6b', brightBlue: '#8fb3ff', brightMagenta: '#dcb0f5', brightCyan: '#7fdde9', brightWhite: '#ffffff',
   };
-  const wsURL = path => (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/api/' + path;
+  const wsURL = path => (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + apiURL(path);
   const tabIcon = t => `<svg class="ico" viewBox="0 0 24 24">${t.kind === 'exec' ? '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8.5 10l2.5 2-2.5 2M13 14.5h3"/>' : '<path d="M5 8l4 4-4 4M11 17h8"/>'}</svg>`;
 
   function show(open = true) {

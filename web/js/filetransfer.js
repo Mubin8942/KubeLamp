@@ -184,7 +184,7 @@ async function viewFileTransfer(route) {
   // ---- download
   function startDownload(params) {
     const a = document.createElement('a');
-    a.href = '/api/tools/files/download?' + qs(params);
+    a.href = apiURL('tools/files/download?') + qs(params);
     a.download = '';
     document.body.appendChild(a); a.click(); a.remove();
   }
@@ -262,7 +262,7 @@ async function viewFileTransfer(route) {
     let t = via ? { pod: via.pod, container: via.container, dir: via.path } : { pod: F.pod, container: F.container, dir: it.dir };
     const fail = m => { it.state = 'err'; it.msg = m; };
     for (let tries = 0; tries < 6; tries++) {
-      const u = '/api/tools/files/upload?' + qs({ pod: t.pod, container: t.container, dir: t.dir, name: it.f.name, size: it.f.size, overwrite: opts.overwrite ? '1' : '0', allowLayer: opts.allowLayer ? '1' : '0' });
+      const u = apiURL('tools/files/upload?') + qs({ pod: t.pod, container: t.container, dir: t.dir, name: it.f.name, size: it.f.size, overwrite: opts.overwrite ? '1' : '0', allowLayer: opts.allowLayer ? '1' : '0' });
       it.pct = 0;
       const r = await ftXhr(u, it.f, p => { it.pct = p; drawQueue(); }, it.hold);
       const d = r.data || {};

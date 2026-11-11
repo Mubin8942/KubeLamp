@@ -36,7 +36,20 @@ func sameOrigin(r *http.Request) bool {
 		return true // non-browser client
 	}
 	u, err := url.Parse(o)
-	return err == nil && u.Host == r.Host
+	if err != nil {
+		return false
+	}
+	if u.Host == r.Host {
+		return true
+	}
+	// behind a reverse proxy that rewrites Host (nginx proxy_pass, Ingress), the
+	// browser's host arrives in X-Forwarded-Host. Browsers can't set that header on a
+	// cross-site request without a CORS preflight, which KubeLamp never allows.
+	if fh := r.Header.Get("X-Forwarded-Host"); fh != "" {
+		first := strings.TrimSpace(strings.Split(fh, ",")[0])
+		return strings.EqualFold(u.Host, first)
+	}
+	return false
 }
 
 func (s *Server) shellAllowed() bool { return !s.readOnly && (s.localOnly || s.allowShell) }

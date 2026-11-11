@@ -52,9 +52,9 @@ const CT_STATES = {
 const CT_FAIL = new Set(['timeout', 'unreachable']);
 
 async function ctSend(method, path, body) {
-  const r = await fetch('/api/' + path, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const r = await fetch(apiURL(path), { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.error || r.statusText);
+  if (!r.ok) throw httpErr(r, d);
   return d;
 }
 

@@ -553,12 +553,9 @@ func (s *Server) guard(next http.Handler) http.Handler {
 			}
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			if o := r.Header.Get("Origin"); o != "" {
-				u, err := url.Parse(o)
-				if err != nil || u.Host != r.Host {
-					http.Error(w, "cross-origin request blocked", http.StatusForbidden)
-					return
-				}
+			if !sameOrigin(r) {
+				http.Error(w, "cross-origin request blocked (behind a reverse proxy, forward the Host header or set X-Forwarded-Host)", http.StatusForbidden)
+				return
 			}
 		}
 		w.Header().Set("X-Content-Type-Options", "nosniff")
