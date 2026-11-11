@@ -51,7 +51,7 @@ jobs:
             It opens http://127.0.0.1:7080 and reads `~/.kube/config` (or `-kubeconfig <path>`).
 
             **Docker:** `docker run -p 7080:7080 --user $(id -u):$(id -g) -v ~/.kube:/kube:ro -v kubelamp-data:/data ghcr.io/zanayeem/kubelamp`
-            (also on Docker Hub; `-tools` tags include kubectl and the AWS CLI for EKS logins).
+            (also on Docker Hub; the image includes kubectl and the AWS CLI for EKS logins).
             Inside Kubernetes: see `deploy/kubernetes/` in the repository.
 
   macos-dmg:
@@ -109,15 +109,13 @@ jobs:
           else
             echo "::warning::DOCKERHUB_USERNAME / DOCKERHUB_TOKEN secrets are not set: pushing to GHCR only"
           fi
-          slim=""; tools=""
+          slim=""
           for r in $repos; do
             slim="$slim,$r:$v,$r:$mm,$r:latest"
-            tools="$tools,$r:$v-tools,$r:$mm-tools,$r:latest-tools"
           done
           echo "slim=${slim#,}" >> "$GITHUB_OUTPUT"
-          echo "tools=${tools#,}" >> "$GITHUB_OUTPUT"
           echo "version=$v" >> "$GITHUB_OUTPUT"
-      - name: Build and push (slim)
+      - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -125,15 +123,6 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.tags.outputs.slim }}
-          build-args: VERSION=${{ steps.tags.outputs.version }}
-      - name: Build and push (tools)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile.tools
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.tags.outputs.tools }}
           build-args: VERSION=${{ steps.tags.outputs.version }}
       - name: Smoke test the pushed image
         run: |

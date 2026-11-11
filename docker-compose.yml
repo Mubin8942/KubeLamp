@@ -3,7 +3,7 @@
 #   docker compose logs kubelamp      # shows the URL with the access token
 services:
   kubelamp:
-    image: ghcr.io/zanayeem/kubelamp:latest      # or docker.io/<user>/kubelamp; :latest-tools for EKS/aws logins
+    image: ghcr.io/zanayeem/kubelamp:latest      # or docker.io/<user>/kubelamp, or build: .
     container_name: kubelamp
     restart: unless-stopped
     user: "${UID:-1000}:${GID:-1000}"             # so your 600-mode kubeconfig is readable
@@ -15,7 +15,7 @@ services:
     volumes:
       - ${HOME}/.kube:/kube:ro                     # /kube/config is read by default
       - kubelamp-data:/data
-      # - ${HOME}/.aws:/home/kubelamp/.aws:ro       # tools image + EKS: aws credentials
+      # - ${HOME}/.aws:/home/kubelamp/.aws:ro       # EKS: aws credentials
     read_only: true
     security_opt: ["no-new-privileges:true"]
 volumes:

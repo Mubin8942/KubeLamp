@@ -1,5 +1,5 @@
-# KubeLamp — GitLab CI: clone the source from GitHub, build the Docker images,
-# push them to Harbor.
+# KubeLamp — GitLab CI: clone the source from GitHub, build the all-in-one Docker
+# image (KubeLamp + kubectl + AWS CLI), push it to Harbor.
 #
 # Set these in GitLab → Settings → CI/CD → Variables (mask + protect the secrets):
 #   REGISTRY         Harbor host, e.g. harbor.example.com          (no https://)
@@ -18,7 +18,6 @@ variables:
   # image destination: <registry>/<harbor project>/kubelamp
   HARBOR_PROJECT: $PROJECT_NAME-$CI_COMMIT_BRANCH
   IMAGE_NAME: kubelamp
-  BUILD_TOOLS_IMAGE: "true"        # also build <tag>-tools (kubectl, aws-cli, bash)
   DOCKER_BUILDKIT: "1"             # the Dockerfiles use $BUILDPLATFORM
 
 workflow:
@@ -61,7 +60,7 @@ build:
       # ---- 3. log in to Harbor
       echo "$HARBOR_PASSWORD" | docker login "$REGISTRY" -u "$HARBOR_USER" --password-stdin
 
-      # ---- 4. build and push the slim image
+      # ---- 4. build and push the all-in-one image
       docker build \
         --pull \
         --build-arg VERSION="$TAG" \
@@ -74,24 +73,9 @@ build:
       docker push "${IMAGE}:${TAG}"
       docker push "${IMAGE}:${LATEST}"
 
-      # ---- 5. optional tools image (kubectl + aws-cli for EKS/exec kubeconfigs)
-      if [ "$BUILD_TOOLS_IMAGE" = "true" ]; then
-        docker build \
-          --pull \
-          --build-arg VERSION="${TAG}-tools" \
-          --label org.opencontainers.image.revision="$GIT_SHA" \
-          -f Dockerfile.tools \
-          -t "${IMAGE}:${TAG}-tools" \
-          -t "${IMAGE}:${LATEST}-tools" \
-          .
-        docker push "${IMAGE}:${TAG}-tools"
-        docker push "${IMAGE}:${LATEST}-tools"
-      fi
-
       echo "Pushed:"
       echo "  ${IMAGE}:${TAG}"
       echo "  ${IMAGE}:${LATEST}"
-      [ "$BUILD_TOOLS_IMAGE" = "true" ] && echo "  ${IMAGE}:${TAG}-tools" && echo "  ${IMAGE}:${LATEST}-tools"
       echo "IMAGE_TAG=${TAG}" > "$CI_PROJECT_DIR/build.env"
   after_script:
     - docker logout "$REGISTRY" || true

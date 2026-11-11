@@ -186,10 +186,7 @@ Every flag can also be set with an environment variable: `KUBELAMP_` plus the fl
 
 Images for amd64 and arm64 on GitHub Container Registry and Docker Hub:
 
-| Tag | Base | Use it for |
-|---|---|---|
-| `kubelamp:<version>`, `:latest` | distroless, ~15 MB, non-root, no shell | kubeconfigs with certificates or tokens, and in-cluster use |
-| `kubelamp:<version>-tools`, `:latest-tools` | Alpine with `kubectl`, the AWS CLI, `bash`, `curl` | EKS kubeconfigs that run `aws eks get-token`, or the local shell |
+One all-in-one image, `kubelamp:<version>` / `:latest`: Alpine, non-root, with `kubectl`, the AWS CLI, `bash`, `curl` and `jq`. It covers kubeconfigs with certificates or tokens, EKS kubeconfigs that run `aws eks get-token`, in-cluster use, and the local shell. Build it yourself with `docker build -t kubelamp .`.
 
 ```sh
 docker run -d --name kubelamp -p 7080:7080 \
@@ -201,7 +198,7 @@ docker logs kubelamp        # the URL with the access token
 
 - **`--user $(id -u):$(id -g)`** lets the container read your kubeconfig, which is normally readable only by you (mode 600). Without it you will see `permission denied` for `/kube/config` in the logs.
 - **Mount the whole `~/.kube` folder**, so certificate files the kubeconfig points to (`certificate-authority: ca.crt`) are found. Absolute paths to files elsewhere (`/home/you/certs/ca.crt`) must exist inside the container too; kubeconfigs with embedded `*-data` fields just work.
-- **EKS:** use the `-tools` image and mount your AWS credentials: `-v ~/.aws:/home/kubelamp/.aws:ro` (and `-e AWS_PROFILE=…` if needed).
+- **EKS:** mount your AWS credentials: `-v ~/.aws:/home/kubelamp/.aws:ro` (and `-e AWS_PROFILE=…` if needed).
 - **Defaults in the image:** listens on `0.0.0.0:7080` with a token (kept in `/data/token`), reads `/kube/config`, no browser, local shell off. The image has a health check; `/healthz` answers without a token.
 - **Docker Compose:** see `docker-compose.yml`.
 

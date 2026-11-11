@@ -24,23 +24,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      - name: Build slim image
+      - name: Build image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
           load: true
           tags: kubelamp:ci
-      - name: Build tools image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile.tools
-          load: true
-          tags: kubelamp:ci-tools
-      - name: Run both images
+      - name: Run the image
         run: |
-          for img in kubelamp:ci kubelamp:ci-tools; do
+          for img in kubelamp:ci; do
             docker run -d --name kl --read-only -p 7080:7080 -v kldata:/data "$img"
             for i in $(seq 1 20); do curl -fsS localhost:7080/healthz && break; sleep 1; done
             curl -fsS localhost:7080/healthz
@@ -49,6 +42,6 @@ jobs:
             docker logs kl
             docker rm -f kl; docker volume rm kldata
           done
-          docker run --rm --entrypoint kubectl kubelamp:ci-tools version --client
-          docker run --rm --entrypoint aws kubelamp:ci-tools --version
+          docker run --rm --entrypoint kubectl kubelamp:ci version --client
+          docker run --rm --entrypoint aws kubelamp:ci --version
           docker images | grep kubelamp
