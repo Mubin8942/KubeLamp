@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"math"
 	"os"
@@ -135,11 +136,11 @@ func TestNormalizeAccess(t *testing.T) {
 		t.Fatal("validDNSLabel wrong")
 	}
 	c := &Cluster{Info: ContextInfo{Namespace: "payments"}, access: AccessSettings{Namespaces: []string{"ecrm"}}}
-	if got := c.scopeNamespaces(); len(got) != 2 || got[0] != "payments" || got[1] != "ecrm" {
+	if got, _ := c.scopeNamespaces(context.Background()); len(got) != 2 || got[0] != "ecrm" || got[1] != "payments" {
 		t.Fatalf("scopeNamespaces = %v", got)
 	}
 	empty := &Cluster{}
-	if got := empty.scopeNamespaces(); len(got) != 1 || got[0] != "default" {
+	if got, _ := empty.scopeNamespaces(context.Background()); len(got) != 1 || got[0] != "default" {
 		t.Fatalf("fallback namespace = %v", got)
 	}
 }

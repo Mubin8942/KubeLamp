@@ -242,7 +242,14 @@ Each context has an **Access** setting. Click the lock button on a cluster's pag
 |---|---|---|
 | **Automatic** (default) | anything | tries cluster-wide reads; if RBAC forbids them, switches to your namespaces |
 | **Cluster-wide** | ClusterRole + ClusterRoleBinding (for example the built-in `view` plus `nodes`) | every namespace, nodes, node capacity |
-| **Only my namespaces** | Role + RoleBinding only | the context's namespace plus the namespaces you list; **no cluster-scoped calls are made** |
+| **Only my namespaces** | Role + RoleBinding only | your namespaces (found automatically, plus any you type); no cluster-wide lists are read |
+
+**Your namespaces are found automatically**, so you don't have to type them:
+- **Rancher** (server URL `…/k8s/clusters/c-…`): Rancher's API lists the namespaces of your projects.
+- **Other clusters:** if your user may list namespaces, every namespace is a candidate.
+- **The check:** each candidate is confirmed with a `SelfSubjectAccessReview` ("may I list pods here?"), so namespaces you can see but not read are left out.
+- **Staying current:** this runs again every 10 minutes and when you save the Access dialog, so a new RoleBinding shows up on its own.
+- **When nothing can be found** (no namespace list and not Rancher): type your namespaces in the Access dialog, as before. Typed namespaces are always added to the ones found.
 
 In namespace mode:
 - **Usage, workloads, pods, events and logs** come only from your namespaces.

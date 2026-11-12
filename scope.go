@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"net/url"
 	"sort"
 	"strings"
@@ -84,21 +87,163 @@ func (c *Cluster) SetAccess(a AccessSettings) {
 	c.mu.Lock()
 	c.access = normalizeAccess(a)
 	c.detected, c.detectedAt = "", time.Time{}
+	c.nsFoundAt = time.Time{} // look for namespaces again
 	c.mu.Unlock()
 	c.poke()
 }
 
-// scopeNamespaces: configured namespaces plus the context's default namespace.
-func (c *Cluster) scopeNamespaces() []string {
+// scopeNamespaces: the namespaces found automatically, plus the ones typed in the
+// access dialog. Only when nothing is found: the context's namespace, else "default".
+func (c *Cluster) scopeNamespaces(ctx context.Context) (nss []string, foundBy string) {
 	a := c.Access()
-	nss := a.Namespaces
-	if ns := c.Info.Namespace; ns != "" && !contains(nss, ns) {
-		nss = append([]string{ns}, nss...)
+	found, by := c.discoverNamespaces(ctx)
+	nss = append(nss, found...)
+	for _, n := range a.Namespaces {
+		if !contains(nss, n) {
+			nss = append(nss, n)
+		}
 	}
-	if len(nss) == 0 {
-		nss = []string{"default"}
+	if len(found) == 0 {
+		if ns := c.Info.Namespace; ns != "" && !contains(nss, ns) {
+			nss = append([]string{ns}, nss...)
+		}
+		if len(nss) == 0 {
+			nss = []string{"default"}
+		}
 	}
-	return nss
+	sort.Strings(nss)
+	return nss, by
+}
+
+const (
+	nsDiscoverEvery = 10 * time.Minute // new RoleBindings show up within this time
+	nsDiscoverMax   = 1000             // namespaces checked at most
+)
+
+// discoverNamespaces finds the namespaces a Role/RoleBinding-only user can read, so they
+// don't have to be typed in. Kubernetes has no "my namespaces" API, so:
+//
+//  1. Rancher (server URL …/k8s/clusters/<id>): Rancher's own API at …/v1/namespaces
+//     lists exactly the namespaces this user may see (its projects).
+//  2. Otherwise, if the user may list namespaces, every namespace is a candidate.
+//
+// Each candidate is then checked with a SelfSubjectAccessReview ("may I list pods
+// here?"), which every authenticated user may ask. Results are cached for 10 minutes.
+func (c *Cluster) discoverNamespaces(ctx context.Context) ([]string, string) {
+	c.mu.RLock()
+	found, by, at := c.nsFound, c.nsFoundBy, c.nsFoundAt
+	c.mu.RUnlock()
+	if !at.IsZero() && time.Since(at) < nsDiscoverEvery {
+		return found, by
+	}
+	dctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	cands, by := c.namespaceCandidates(dctx)
+	found = c.allowedNamespaces(dctx, cands)
+	if len(found) == 0 {
+		by = ""
+	}
+	c.mu.Lock()
+	c.nsFound, c.nsFoundBy, c.nsFoundAt = found, by, time.Now()
+	c.mu.Unlock()
+	return found, by
+}
+
+func (c *Cluster) namespaceCandidates(ctx context.Context) ([]string, string) {
+	if c.client == nil {
+		return nil, ""
+	}
+	// 1. Rancher's API (Steve) filters namespaces by the user's projects
+	if strings.Contains(c.client.base.Path, "/k8s/clusters/") {
+		var steve struct {
+			Data []struct {
+				Metadata struct {
+					Name string `json:"name"`
+				} `json:"metadata"`
+			} `json:"data"`
+		}
+		if err := c.client.get(ctx, "/v1/namespaces", nil, &steve); err == nil && len(steve.Data) > 0 {
+			var out []string
+			for _, d := range steve.Data {
+				if validDNSLabel(d.Metadata.Name) {
+					out = append(out, d.Metadata.Name)
+				}
+			}
+			if len(out) > 0 {
+				return out, "rancher"
+			}
+		}
+	}
+	// 2. plain Kubernetes: works when the user may list namespaces
+	items, err := list[Namespace](ctx, c.client, "/api/v1/namespaces", nil)
+	if err != nil {
+		return nil, ""
+	}
+	var out []string
+	for _, n := range items {
+		out = append(out, n.Metadata.Name)
+	}
+	return out, "namespaces"
+}
+
+// allowedNamespaces keeps the candidates where this user may list pods. If the API
+// server can't answer access reviews at all, the candidates are kept as they are.
+func (c *Cluster) allowedNamespaces(ctx context.Context, cands []string) []string {
+	if len(cands) > nsDiscoverMax {
+		cands = cands[:nsDiscoverMax]
+	}
+	type res struct {
+		ok, unknown bool
+	}
+	out := make([]res, len(cands))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 16)
+	for i, ns := range cands {
+		wg.Add(1)
+		go func(i int, ns string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			ok, err := c.canListPods(ctx, ns)
+			out[i] = res{ok: ok, unknown: err != nil}
+		}(i, ns)
+	}
+	wg.Wait()
+	var allowed []string
+	unknown := 0
+	for i, r := range out {
+		if r.unknown {
+			unknown++
+		}
+		if r.ok {
+			allowed = append(allowed, cands[i])
+		}
+	}
+	if unknown == len(cands) { // no access reviews here: trust the list
+		return append([]string(nil), cands...)
+	}
+	return allowed
+}
+
+func (c *Cluster) canListPods(ctx context.Context, ns string) (bool, error) {
+	body, _ := json.Marshal(map[string]any{
+		"apiVersion": "authorization.k8s.io/v1", "kind": "SelfSubjectAccessReview",
+		"spec": map[string]any{"resourceAttributes": map[string]string{"namespace": ns, "verb": "list", "resource": "pods"}},
+	})
+	resp, err := c.client.request(ctx, http.MethodPost, "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews", nil, body, "application/json", "application/json")
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	var r struct {
+		Status struct {
+			Allowed bool `json:"allowed"`
+		} `json:"status"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&r); err != nil {
+		return false, err
+	}
+	return r.Status.Allowed, nil
 }
 
 // decideScope returns "cluster" or "namespaced". In auto mode it probes once
@@ -133,8 +278,8 @@ func (c *Cluster) decideScope(ctx context.Context) string {
 // refreshNamespaced reads each allowed namespace with namespaced endpoints only —
 // exactly what a Role + RoleBinding grants. Forbidden resources are reported, not fatal.
 func (c *Cluster) refreshNamespaced(ctx context.Context, s *Snapshot) []string {
-	nss := c.scopeNamespaces()
-	s.Scope, s.ScopeNamespaces = "namespaced", nss
+	nss, foundBy := c.scopeNamespaces(ctx)
+	s.Scope, s.ScopeNamespaces, s.ScopeFoundBy = "namespaced", nss, foundBy
 	var (
 		mu      sync.Mutex
 		wg      sync.WaitGroup

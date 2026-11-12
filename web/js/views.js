@@ -7,8 +7,14 @@ const capName = c => isNs(c) ? 'Quota' : 'Allocatable';
 function scopeText(c) {
   if (!c.scope) return '';
   if (!isNs(c)) return 'Cluster-wide access';
-  return `Namespaces: ${(c.scopeNamespaces || []).join(', ')}`;
+  return `Namespaces: ${nsShort(c.scopeNamespaces)}`;
 }
+// "a, b, c +12 more" for long namespace lists in one-line places
+function nsShort(list, max = 3) {
+  list = list || [];
+  return list.length <= max ? list.join(', ') : `${list.slice(0, max).join(', ')} +${list.length - max} more`;
+}
+const FOUND_BY = { rancher: 'found automatically from your Rancher projects', namespaces: 'found automatically (namespaces where you may list pods)' };
 async function openAccess(ctx) {
   const c = (await api('clusters')).find(x => x.name === ctx) || {};
   const dlg = document.createElement('dialog');
@@ -17,13 +23,16 @@ async function openAccess(ctx) {
     <h3>Access for ${esc(shortName(ctx))}</h3>
     <p class="muted" style="margin:0">How KubeLamp reads this cluster with your kubeconfig credentials.</p>
     <label class="radio"><input type="radio" name="mode" value="auto"><span><b>Automatic</b> — recommended${esc(detected)}
-      <small>Use cluster-wide access if your user has a ClusterRole; if not, read only the namespaces below.</small></span></label>
+      <small>Use cluster-wide access if your user has a ClusterRole; if not, read the namespaces you have access to.</small></span></label>
     <label class="radio"><input type="radio" name="mode" value="cluster"><span><b>Cluster-wide</b>
       <small>Needs ClusterRole + ClusterRoleBinding. Shows nodes, every namespace and node capacity.</small></span></label>
     <label class="radio"><input type="radio" name="mode" value="namespaced"><span><b>Only my namespaces</b>
-      <small>For users with Role + RoleBinding only. KubeLamp never makes cluster-scoped calls.</small></span></label>
-    <label class="field">Namespaces you have access to
-      <small>Comma or newline separated.${c.namespace ? ` The context's namespace <code>${esc(c.namespace)}</code> is always included.` : ' Without any, “default” is used.'}</small>
+      <small>For users with Role + RoleBinding only. KubeLamp doesn't read cluster-wide lists.</small></span></label>
+    ${c.scope === 'namespaced' ? `<div class="acc-found"><b>${c.scopeFoundBy ? `Found automatically (${c.scopeFoundBy === 'rancher' ? 'Rancher projects' : 'namespaces where you may list pods'})` : 'Not found automatically'}</b>
+      <span class="muted">${c.scopeFoundBy ? 'KubeLamp looks again every 10 minutes and when you save, so new RoleBindings appear on their own.' : 'Your user can\'t list namespaces and this isn\'t a Rancher cluster: type your namespaces below.'}</span>
+      ${(c.scopeNamespaces || []).length ? `<div class="chips acc-chips">${c.scopeNamespaces.map(n => `<span class="chip">${esc(n)}</span>`).join('')}</div>` : ''}</div>` : ''}
+    <label class="field">Extra namespaces (optional)
+      <small>Only for namespaces that aren't found automatically. Comma or newline separated.${c.namespace ? ` The context's namespace <code>${esc(c.namespace)}</code> is used when nothing is found.` : ''}</small>
       <textarea id="accNs" rows="3" spellcheck="false" placeholder="payments, ecrm">${esc((c.accessNamespaces || []).join(', '))}</textarea></label>
     <div class="err-line" id="accErr"></div>
     <div class="actions"><button type="button" class="btn" id="accCancel">Cancel</button><button type="submit" class="btn primary">Save</button></div>
@@ -155,7 +164,8 @@ function clusterHead(sum, title, crumbs = '') {
     ${c.version ? `<span>${esc(c.version)}</span>` : ''}<span class="mono">${esc(c.server)}</span><span>${esc(c.authType)}</span>
     <span class="muted" id="updated">updated ${c.at ? age(c.at) + ' ago' : '—'}</span></div></div>
     <div class="right"><button class="btn" id="accessBtn" title="Cluster-wide or namespace-scoped (Role/RoleBinding) access"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>${esc(isNs(c) ? 'Namespaces: ' + (c.scopeNamespaces || []).length : 'Access')}</button><button class="btn" id="refreshBtn"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>Refresh</button></div></div>
-    ${isNs(c) ? `<div class="banner info"><b>Namespace-scoped.</b><span>Your credentials have Role/RoleBinding access, so KubeLamp shows only ${nsListHtml(c.scopeNamespaces || [])}. ${c.nodesTotal ? 'Nodes are shown because your user may list them; node requests count only your pods' : 'Nodes and cluster capacity need cluster-wide rights'}${c.cpu.quota || c.mem.quota ? '; ResourceQuota is used as the capacity line' : ''}. <a href="#" data-acc>Change namespaces</a></span></div>` : ''}
+    ${isNs(c) ? `<div class="banner info ns-banner"><b>Namespace-scoped</b><span><b>${(c.scopeNamespaces || []).length} namespace${(c.scopeNamespaces || []).length === 1 ? '' : 's'}</b>${c.scopeFoundBy ? ` ${FOUND_BY[c.scopeFoundBy] || 'found automatically'}` : ''}: ${nsListHtml(c.scopeNamespaces || [], 4)}
+      <span class="muted ns-note">${c.nodesTotal ? 'Nodes are shown because your user may list them; node requests count only your pods' : 'Nodes and cluster capacity need cluster-wide rights'}${c.cpu.quota || c.mem.quota ? '; ResourceQuota is used as the capacity line' : ''}. <a href="#" data-acc>Manage</a></span></span></div>` : ''}
     ${certBanner(c)}
     ${c.status === 'partial' ? `<div class="banner"><b>Some data is missing.</b><span>${esc(c.error)}</span></div>` : ''}
     ${!c.metricsAvailable ? (/forbidden|RBAC/i.test(c.metricsErr || '')
@@ -207,7 +217,7 @@ async function viewOverview(route) {
     ], d.problems, { href: p => ctxPath(ctx) + '/pod/' + enc(p.namespace) + '/' + enc(p.name) });
     main.innerHTML = clusterHead(s, shortName(ctx)) + `
       <div class="tiles">
-        ${ns ? `<div class="card tile"><div class="label">Namespaces</div><div class="value">${(s.scopeNamespaces || []).length}</div><div class="foot" title="${esc((s.scopeNamespaces || []).join(', '))}">${esc((s.scopeNamespaces || []).join(', '))}</div></div>`
+        ${ns ? `<div class="card tile"><div class="label">Namespaces</div><div class="value">${(s.scopeNamespaces || []).length}</div><div class="foot" title="${esc((s.scopeNamespaces || []).join(', '))}">${esc(nsShort(s.scopeNamespaces))}</div></div>`
           : `<div class="card tile"><div class="label">Nodes ready</div><div class="value">${s.nodesReady}<small>/ ${s.nodesTotal}</small></div><div class="foot">${s.nodesReady === s.nodesTotal ? stLabel('all ready', 'good') : stLabel((s.nodesTotal - s.nodesReady) + ' not ready', 'critical')}</div></div>`}
         <div class="card tile"><div class="label">Pods running</div><div class="value">${fmtNum(s.pods.running)}<small>/ ${fmtNum(s.pods.total)}</small></div><div class="foot">${s.pods.problem ? stLabel(s.pods.problem + (s.pods.problem > 1 ? ' need' : ' needs') + ' attention', 'critical') : stLabel('no problems', 'good')}</div></div>
         <div class="card tile"><div class="label">Deployments healthy</div><div class="value">${s.deployHealthy}<small>/ ${s.deployTotal}</small></div><div class="foot">${s.namespaces} namespaces</div></div>
@@ -272,7 +282,7 @@ async function viewNodes(route) {
     ], rows, { href: n => ctxPath(ctx) + '/node/' + enc(n.name) });
     if (isNs(sum) && !d.nodes.length) {
       main.innerHTML = clusterHead(sum, 'Nodes', `<div class="crumbs"><a href="${ctxPath(ctx)}/overview">${esc(shortName(ctx))}</a></div>`) +
-        `<div class="empty-state"><h2>Nodes need cluster-wide access</h2><p>Nodes are cluster-scoped, and your kubeconfig user only has Role/RoleBinding rights in ${esc((sum.scopeNamespaces || []).join(', '))}.</p>
+        `<div class="empty-state"><h2>Nodes need cluster-wide access</h2><p>Nodes are cluster-scoped, and your kubeconfig user only has Role/RoleBinding rights in ${esc(nsShort(sum.scopeNamespaces, 6))}.</p>
         <p class="muted">Pods still show which node they run on. To see nodes, ask for a ClusterRole with <code>get, list</code> on <code>nodes</code> (and <code>nodes</code> in <code>metrics.k8s.io</code>).</p></div>`;
       bindRefresh(ctx, render);
       return;

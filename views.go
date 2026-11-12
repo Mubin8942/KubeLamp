@@ -41,6 +41,7 @@ type ClusterSummary struct {
 	Certs            *CertReport      `json:"certs,omitempty"`
 	Scope            string           `json:"scope"`           // cluster | namespaced
 	ScopeNamespaces  []string         `json:"scopeNamespaces"` // when namespaced
+	ScopeFoundBy     string           `json:"scopeFoundBy"`    // rancher | namespaces | "" (typed in)
 	AccessMode       string           `json:"accessMode"`      // configured: auto | cluster | namespaced
 	AccessNamespaces []string         `json:"accessNamespaces"`
 }
@@ -91,7 +92,7 @@ func summarize(c *Cluster) ClusterSummary {
 	}
 	sum.At, sum.Version, sum.Error = s.At, s.Version, s.Err
 	sum.MetricsAvailable, sum.MetricsErr = s.MetricsAvailable, s.MetricsErr
-	sum.Scope, sum.ScopeNamespaces = s.Scope, s.ScopeNamespaces
+	sum.Scope, sum.ScopeNamespaces, sum.ScopeFoundBy = s.Scope, s.ScopeNamespaces, s.ScopeFoundBy
 	// Quota is only a fair capacity line if every visible namespace has one;
 	// otherwise usage from un-quota'd namespaces would be compared against it.
 	if s.Scope == "namespaced" && len(s.Quotas) == len(s.ScopeNamespaces) {

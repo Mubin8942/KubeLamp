@@ -38,6 +38,7 @@ type Snapshot struct {
 	Readable         bool              // at least one workload/pod list succeeded
 	Scope            string            // "cluster" or "namespaced"
 	ScopeNamespaces  []string          // namespaces read in namespaced scope
+	ScopeFoundBy     string            // how they were found: rancher | namespaces | "" (typed in)
 	Quotas           map[string]Quota  // per namespace (namespaced scope)
 	owner            map[string]string // ns/pod → "Deployment/name"
 }
@@ -83,6 +84,9 @@ type Cluster struct {
 	access     AccessSettings // guarded by mu
 	detected   string         // auto-detected scope
 	detectedAt time.Time
+	nsFound    []string  // namespaces found by discoverNamespaces (guarded by mu)
+	nsFoundBy  string    // how: "rancher", "namespaces" or "" (nothing found)
+	nsFoundAt  time.Time // when it last ran
 
 	fpMu     sync.Mutex // live pod lists (see FreshPods)
 	fp       map[string]freshPods
