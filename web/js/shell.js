@@ -112,8 +112,23 @@ function navModel(route) {
   return groups.filter(g => g.items.some(i => !i.head));
 }
 
+// highlight the search text in a label
+function navMark(label, q) {
+  const i = q ? label.toLowerCase().indexOf(q) : -1;
+  return i < 0 ? esc(label) : esc(label.slice(0, i)) + '<mark>' + esc(label.slice(i, i + q.length)) + '</mark>' + esc(label.slice(i + q.length));
+}
+const navQ = () => ($('#navQ')?.value || '').trim().toLowerCase();
+
 function renderNav(route) {
   const nav = $('#nav'), rail = $('#rail');
+  const q = navQ();
+  if (!route.ctx && q) { // search the cluster list
+    const hits = S.clusters.filter(c => shortName(c.name).toLowerCase().includes(q));
+    nav.innerHTML = `<div class="nav-hint">${hits.length} cluster${hits.length === 1 ? '' : 's'} match “${esc(q)}”</div><div class="nav-res">` +
+      hits.map(c => `<a class="nav-a" href="${ctxPath(c.name)}/overview"><span class="n"><i class="dot ${c.status}"></i> ${navMark(shortName(c.name), q)}</span></a>`).join('') + '</div>';
+    navKb(0);
+    return;
+  }
   if (!route.ctx) {
     nav.innerHTML = `<a class="nav-a ${route.page ? '' : 'on'}" href="#/">All clusters</a><div class="nav-h" style="cursor:default">Clusters</div>` +
       (S.clusters.map(c => `<a class="nav-a" href="${ctxPath(c.name)}/overview" title="${esc(c.name)}"><i class="dot ${c.status}"></i><span class="n">${esc(shortName(c.name))}</span>${c.scope === 'namespaced' ? '<span class="tag" title="Role/RoleBinding access">ns</span>' : ''}</a>`).join('')
@@ -123,19 +138,38 @@ function renderNav(route) {
     return;
   }
   const groups = navModel(route);
-  const group = (label, body) => {
-    const closed = navClosed(label);
-    return `<button class="nav-h ${closed ? 'closed' : ''}" data-g="${esc(label)}"><svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></svg>${esc(label)}</button><div class="nav-sub" ${closed ? 'hidden' : ''}>${body}</div>`;
-  };
-  let html = `<a class="nav-a nav-back" href="#/"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 6l-6 6 6 6"/></svg>All clusters</a>`;
-  groups.forEach(g => {
-    html += group(g.label, g.items.map(i => i.head ? `<div class="muted" style="font-size:11.5px;padding:8px 10px 2px" title="${esc(i.head)}">${esc(i.head)}</div>`
-      : `<a class="nav-a ${i.on ? 'on' : ''} ${i.sub ? 'sub' : ''}" href="${i.href}">${i.sub ? '<span class="nav-tree" aria-hidden="true"></span>' : ''}<span class="n">${esc(i.label)}</span></a>`).join(''));
-  });
+  const icon = label => `<svg class="gi" viewBox="0 0 24 24">${NAV_ICON[label] || NAV_ICON['Custom resources']}</svg>`;
+  const chev = '<svg class="chev" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></svg>';
+  const link = (i, label) => `<a class="nav-a ${i.on ? 'on' : ''} ${i.sub && !q ? 'sub' : ''}" href="${i.href}">${i.sub && !q ? '<span class="nav-tree" aria-hidden="true"></span>' : ''}<span class="n">${label}</span></a>`;
+  let html;
+  if (q) {
+    // search: matching pages under their section; for custom resources the API group matches too
+    let n = 0;
+    html = groups.map(g => {
+      let head = '', out = '';
+      g.items.forEach(i => {
+        if (i.head) { head = i.head; return; }
+        if (!(i.label.toLowerCase().includes(q) || g.label.toLowerCase().includes(q) || head.toLowerCase().includes(q))) return;
+        n++;
+        out += link(i, navMark(i.label, q) + (head ? ` <span class="muted" style="font-size:11.5px">${esc(head)}</span>` : ''));
+      });
+      return out ? `<div class="nav-h" style="cursor:default">${icon(g.label)}${esc(g.label)}</div><div class="nav-sub nav-res">${out}</div>` : '';
+    }).join('');
+    html = `<div class="nav-hint">${n ? `${n} page${n === 1 ? '' : 's'} match “${esc(q)}” · ↑↓ Enter` : `No page matches “${esc(q)}”`}</div>` + html;
+  } else {
+    html = `<a class="nav-a nav-back" href="#/"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 6l-6 6 6 6"/></svg>All clusters</a>`;
+    groups.forEach(g => {
+      const closed = navClosed(g.label);
+      html += `<button class="nav-h ${closed ? 'closed' : ''}" data-g="${esc(g.label)}" aria-expanded="${!closed}">${icon(g.label)}${esc(g.label)}${chev}</button><div class="nav-sub" ${closed ? 'hidden' : ''}>` +
+        g.items.map(i => i.head ? `<div class="nav-grp" title="${esc(i.head)}">${esc(i.head)}</div>` : link(i, esc(i.label))).join('') + '</div>';
+    });
+  }
   nav.innerHTML = html;
+  if (q) navKb(0);
   $$('.nav-h', nav).forEach(h => h.addEventListener('click', () => {
     const closed = !h.classList.contains('closed');
     h.classList.toggle('closed', closed);
+    h.setAttribute('aria-expanded', !closed);
     h.nextElementSibling.hidden = closed;
     setNavClosed(h.dataset.g, closed);
   }));
@@ -148,6 +182,34 @@ function renderNav(route) {
       { side: 'right', title: g.label, search: g.items.length > 14, placeholder: 'Filter ' + g.label.toLowerCase() });
   }));
 }
+
+// ---- page search: "/" focuses it, arrows move, Enter opens, Esc clears
+let navKbI = 0;
+function navKb(i) {
+  const links = $$('#nav .nav-a');
+  if (!links.length) return;
+  navKbI = (i + links.length) % links.length;
+  links.forEach((a, k) => a.classList.toggle('kb', k === navKbI));
+  links[navKbI].scrollIntoView({ block: 'nearest' });
+}
+function clearNavQ() { $('#navQ').value = ''; renderNav(parseRoute()); }
+$('#navQ').addEventListener('input', () => renderNav(parseRoute()));
+$('#navQ').addEventListener('keydown', e => {
+  const links = $$('#nav .nav-a');
+  if (e.key === 'ArrowDown') { e.preventDefault(); navKb(navKbI + 1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); navKb(navKbI - 1); }
+  else if (e.key === 'Enter' && navQ() && links[navKbI]) { e.preventDefault(); const href = links[navKbI].getAttribute('href'); clearNavQ(); location.hash = href; }
+  else if (e.key === 'Escape') { e.preventDefault(); clearNavQ(); e.target.blur(); }
+});
+$('#nav').addEventListener('click', e => { if (navQ() && e.target.closest('.nav-a')) setTimeout(clearNavQ); });
+document.addEventListener('keydown', e => {
+  if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+  const t = e.target;
+  if (t.closest?.('input, textarea, select, [contenteditable], .xterm, dialog') || document.body.classList.contains('auth-on')) return;
+  if (document.body.classList.contains('side-min')) setSideMin(false);
+  e.preventDefault();
+  $('#navQ').focus();
+});
 
 // collapse / expand the sidebar; remembered in this browser
 function setSideMin(min) {
@@ -216,7 +278,7 @@ let lastCtx = null;
 async function navigate() {
   S.timers.forEach(clearInterval); S.timers = []; S.gen++; S.kick = null;
   S.abort?.abort(); S.abort = new AbortController();
-  S.redraw = null; hideTip(); closePop();
+  S.redraw = null; hideTip(); closePop(); DD.close(); S.bulk = {};
   const route = parseRoute();
   if (route.ctx && route.ctx !== lastCtx) { loadNs(route.ctx); lastCtx = route.ctx; }
   renderTop(route);

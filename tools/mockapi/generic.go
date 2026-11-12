@@ -92,6 +92,15 @@ func (c *cluster) initGeneric() {
 				"spec":   obj{"accessModes": []string{"ReadWriteMany"}, "storageClassName": "cephfs-retain", "resources": obj{"requests": obj{"storage": "5Gi"}}},
 				"status": obj{"phase": "Bound", "capacity": obj{"storage": "5Gi"}}},
 		)},
+		{"", "v1", "persistentvolumes", "PersistentVolume", false, mk(
+			pv("pvc-0a1f", "10Gi", "Bound", "payments/redis-data-redis-0", "ceph-rbd"),
+			pv("pvc-1b2e", "10Gi", "Bound", "payments/api-data", "cephfs-retain"),
+			pv("pvc-2c3d", "20Gi", "Bound", "payments/ledger-data", "cephfs-retain"),
+			pv("pvc-3d4c", "5Gi", "Bound", "ecrm/ecrm-uploads", "cephfs-retain"),
+			pv("pvc-4e5b", "50Gi", "Released", "payments/old-export", "cephfs-retain"),
+			pv("pvc-5f6a", "2Gi", "Released", "ecrm/ecrm-tmp", "cephfs-retain"),
+			pv("pv-nfs-archive", "500Gi", "Available", "", "nfs"),
+		)},
 		{"networking.k8s.io", "v1", "ingresses", "Ingress", true, mk(
 			obj{"apiVersion": "networking.k8s.io/v1", "kind": "Ingress", "metadata": meta("ecrm", "ecrm-frontend", nil),
 				"spec": obj{"ingressClassName": "traefik", "rules": []obj{{"host": "ecrm.example.com", "http": obj{"paths": []obj{{"path": "/", "pathType": "Prefix",
@@ -336,6 +345,20 @@ func asTable(kind string, items []obj) obj {
 	case "ExternalSecret":
 		extra = []col{{"Store", func(o obj) any { return dig(o, "spec", "secretStoreRef", "name") }, 0},
 			{"Refresh Interval", func(o obj) any { return dig(o, "spec", "refreshInterval") }, 0}, {"Status", func(o obj) any { return "SecretSynced" }, 0}}
+	case "PersistentVolume":
+		extra = []col{{"Capacity", func(o obj) any { return dig(o, "spec", "capacity", "storage") }, 0},
+			{"Status", func(o obj) any { return dig(o, "status", "phase") }, 0},
+			{"Claim", func(o obj) any {
+				if ns, n := dig(o, "spec", "claimRef", "namespace"), dig(o, "spec", "claimRef", "name"); n != nil {
+					return fmt.Sprint(ns) + "/" + fmt.Sprint(n)
+				}
+				return ""
+			}, 0},
+			{"StorageClass", func(o obj) any { return dig(o, "spec", "storageClassName") }, 0}}
+	case "PersistentVolumeClaim":
+		extra = []col{{"Status", func(o obj) any { return dig(o, "status", "phase") }, 0},
+			{"Capacity", func(o obj) any { return dig(o, "status", "capacity", "storage") }, 0},
+			{"StorageClass", func(o obj) any { return dig(o, "spec", "storageClassName") }, 0}}
 	case "Node":
 		extra = []col{{"Status", func(o obj) any { return "Ready" }, 0}, {"Version", func(o obj) any { return dig(o, "status", "nodeInfo", "kubeletVersion") }, 0}}
 	}
@@ -1074,4 +1097,14 @@ func (c *cluster) serveDNSExec(w http.ResponseWriter, r *http.Request, ns, pod s
 	}
 	_ = conn.WriteMessage(ws.OpBinary, append([]byte{1}, sb.String()...))
 	status(obj{"status": "Success"})
+}
+
+// pv is a cluster-scoped PersistentVolume; claim is "namespace/name" or "".
+func pv(name, size, phase, claim, class string) obj {
+	spec := obj{"capacity": obj{"storage": size}, "accessModes": []string{"ReadWriteMany"}, "persistentVolumeReclaimPolicy": "Retain", "storageClassName": class}
+	if ns, n, ok := strings.Cut(claim, "/"); ok {
+		spec["claimRef"] = obj{"namespace": ns, "name": n, "kind": "PersistentVolumeClaim"}
+	}
+	md := obj{"name": name, "uid": hash(name), "resourceVersion": "1", "creationTimestamp": ts(start.Add(-time.Duration(len(name)*53) * time.Hour))}
+	return obj{"apiVersion": "v1", "kind": "PersistentVolume", "metadata": md, "spec": spec, "status": obj{"phase": phase}}
 }

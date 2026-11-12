@@ -3,7 +3,8 @@
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const main = $('#main');
-const S = { clusters: [], kc: null, timers: [], abort: null, sort: {}, view: null, gen: 0, pvc: {} };
+const S = { clusters: [], kc: null, timers: [], abort: null, sort: {}, view: null, gen: 0, pvc: {}, bulk: {} };
+const bulkSet = id => (S.bulk[id] = S.bulk[id] || new Set());
 
 // ------------------------------------------------------------------ helpers
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -237,13 +238,57 @@ function table(id, cols, rows, opts = {}) {
     }
   }
   const limit = opts.limit || 2000;
-  const head = cols.map(c => `<th class="${c.num ? 'num ' : ''}${c.nosort ? '' : 'sort'}" data-k="${c.key}">${esc(c.label)}${st.key === c.key ? `<span class="arr"> ${st.dir === 'desc' ? '↓' : '↑'}</span>` : ''}</th>`).join('');
-  const body = rows.slice(0, limit).map((r, i) => `<tr class="${opts.href ? 'link' : ''}" data-i="${i}">${cols.map(c => `<td class="${c.cls || ''}${c.num ? ' num' : ''}">${c.render ? c.render(r, i) : esc(r[c.key])}</td>`).join('')}</tr>`).join('');
+  const shown = rows.slice(0, limit);
+  const sel = opts.select;
+  if (sel) { // only rows on screen stay selected: a delete never hits something you can't see
+    const keys = new Set(shown.map(sel.key));
+    [...sel.set].forEach(k => { if (!keys.has(k)) sel.set.delete(k); });
+  }
+  const nSel = sel ? shown.filter(r => sel.set.has(sel.key(r))).length : 0;
+  const head = (sel ? `<th class="selc"><input type="checkbox" data-selall aria-label="Select all" ${nSel && nSel === shown.length ? 'checked' : ''}></th>` : '')
+    + cols.map(c => `<th class="${c.num ? 'num ' : ''}${c.nosort ? '' : 'sort'}" data-k="${c.key}">${esc(c.label)}${st.key === c.key ? `<span class="arr"> ${st.dir === 'desc' ? '↓' : '↑'}</span>` : ''}</th>`).join('');
+  const body = shown.map((r, i) => {
+    const on = sel && sel.set.has(sel.key(r));
+    return `<tr class="${opts.href ? 'link' : ''} ${on ? 'picked' : ''}" data-i="${i}">${sel ? `<td class="selc"><input type="checkbox" data-sel aria-label="Select" ${on ? 'checked' : ''}></td>` : ''}${cols.map(c => `<td class="${c.cls || ''}${c.num ? ' num' : ''}">${c.render ? c.render(r, i) : esc(r[c.key])}</td>`).join('')}</tr>`;
+  }).join('');
   const more = rows.length > limit ? `<div class="muted" style="padding:8px 10px">Showing ${limit} of ${rows.length} — narrow with the filters.</div>` : '';
-  const html = `<div class="tbl-wrap"><table class="t" data-tid="${id}"><thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${cols.length}" class="muted">Nothing here</td></tr>`}</tbody></table>${more}</div>`;
-  return { html, rows: rows.slice(0, limit), bind(container, rerender) {
+  const html = `<div class="tbl-wrap"><table class="t" data-tid="${id}"><thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${cols.length + (sel ? 1 : 0)}" class="muted">Nothing here</td></tr>`}</tbody></table>${more}</div>`;
+  return { html, rows: shown, bind(container, rerender) {
     const tblEl = $(`table[data-tid="${id}"]`, container);
     if (!tblEl) return;
+    if (sel) {
+      const all = $('[data-selall]', tblEl);
+      const refresh = () => {
+        const n = shown.filter(r => sel.set.has(sel.key(r))).length;
+        all.checked = n > 0 && n === shown.length;
+        all.indeterminate = n > 0 && n < shown.length;
+        sel.onChange && sel.onChange();
+      };
+      let last = -1;
+      $$('[data-sel]', tblEl).forEach(cb => {
+        cb.closest('td').addEventListener('click', e => e.stopPropagation()); // not a row link
+        cb.addEventListener('click', e => {
+          const i = +cb.closest('tr').dataset.i;
+          const range = e.shiftKey && last >= 0 ? [Math.min(last, i), Math.max(last, i)] : [i, i]; // shift-click: a range
+          for (let k = range[0]; k <= range[1]; k++) {
+            const key = sel.key(shown[k]);
+            cb.checked ? sel.set.add(key) : sel.set.delete(key);
+            const tr = $(`tr[data-i="${k}"]`, tblEl);
+            tr.classList.toggle('picked', cb.checked);
+            $('[data-sel]', tr).checked = cb.checked;
+          }
+          last = i;
+          refresh();
+        });
+      });
+      all.closest('th').addEventListener('click', e => e.stopPropagation());
+      all.addEventListener('change', () => {
+        shown.forEach(r => all.checked ? sel.set.add(sel.key(r)) : sel.set.delete(sel.key(r)));
+        $$('tbody tr', tblEl).forEach(tr => { tr.classList.toggle('picked', all.checked); const cb = $('[data-sel]', tr); if (cb) cb.checked = all.checked; });
+        refresh();
+      });
+      all.indeterminate = nSel > 0 && nSel < shown.length;
+    }
     $$('th.sort', tblEl).forEach(th => th.addEventListener('click', () => {
       const k = th.dataset.k, cur = S.sort[id] || opts.sort || {};
       S.sort[id] = { key: k, dir: cur.key === k && cur.dir === 'asc' ? 'desc' : cur.key === k ? 'asc' : (cols.find(c => c.key === k).num ? 'desc' : 'asc') };
@@ -253,6 +298,53 @@ function table(id, cols, rows, opts = {}) {
   } };
 }
 
+
+// ------------------------------------------------------------------ bulk selection
+// bar above a table while rows are selected
+function bulkBar(el, set, { noun = 'item', onDelete, onClear }) {
+  if (!el) return;
+  const n = set.size;
+  el.innerHTML = n ? `<div class="bulkbar"><b>${n} ${noun}${n === 1 ? '' : 's'} selected</b><span class="muted">Shift-click selects a range</span><span class="grow"></span>
+    <button class="btn sm" data-bclear>Clear selection</button><button class="btn sm danger solid" data-bdel>${ICON.del}Delete ${n}</button></div>` : '';
+  if (!n) return;
+  $('[data-bclear]', el).onclick = () => { set.clear(); onClear && onClear(); };
+  $('[data-bdel]', el).onclick = onDelete;
+}
+
+// delete many objects: [{ ctx, group, resource, ns, name, kind }]; resolves with the number deleted
+async function bulkDelete(items, noun) {
+  if (!items.length) return 0;
+  const n = items.length;
+  const kinds = [...new Set(items.map(i => i.kind))];
+  const typed = n >= 10;
+  let done = 0;
+  const failed = [];
+  const ok = await modal({
+    title: `Delete ${n} ${noun}${n === 1 ? '' : 's'}?`,
+    body: `<p>This can't be undone.${kinds.includes('Pod') ? ' Pods owned by a Deployment, StatefulSet or Job are recreated by their controller.' : ''}</p>
+      <ol class="bulk-list">${items.map(i => `<li>${i.ns ? `<span class="muted">${esc(i.ns)}/</span>` : ''}${esc(i.name)}${kinds.length > 1 ? ` <span class="muted">${esc(i.kind)}</span>` : ''}</li>`).join('')}</ol>
+      ${typed ? `<label class="field">Type <b>${n}</b> to confirm<input type="text" id="bulkN" autocomplete="off" inputmode="numeric"></label>` : ''}`,
+    actions: [{ label: 'Cancel', value: false }, { label: `Delete ${n}`, kind: 'danger solid', submit: true, run: async d => {
+      if (typed && $('#bulkN', d).value.trim() !== String(n)) throw new Error(`Type ${n} to confirm.`);
+      const err = $('[data-err]', d);
+      const queue = items.slice();
+      const worker = async () => {
+        for (let it; (it = queue.shift());) {
+          try { await send('DELETE', 'object?' + new URLSearchParams({ ctx: it.ctx, group: it.group, resource: it.resource, ns: it.ns || '', name: it.name })); done++; }
+          catch (e) { failed.push(`${it.name}: ${e.message}`); }
+          err.textContent = `Deleting… ${done + failed.length} of ${n}`;
+          err.style.color = 'var(--ink-2)';
+        }
+      };
+      await Promise.all([worker(), worker(), worker(), worker()]); // 4 at a time
+      return true;
+    } }],
+  });
+  if (!ok) return 0;
+  if (failed.length) toast(`Deleted ${done} of ${n}. Failed: ${failed.slice(0, 3).join('; ')}${failed.length > 3 ? ` (+${failed.length - 3} more)` : ''}`, 'err');
+  else toast(`Deleted ${done} ${noun}${done === 1 ? '' : 's'}`);
+  return done;
+}
 
 // ------------------------------------------------------------------ writes, dialogs, toasts, popovers
 async function send(method, path, body) {

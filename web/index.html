@@ -21,6 +21,7 @@ if (!/\/$|\.html$/.test(location.pathname)) location.replace(location.pathname +
     <img src="logo.png" alt="" width="30" height="30">
     <span>KubeLamp</span>
   </a>
+  <div class="side-search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg><input type="search" id="navQ" placeholder="Search pages…" aria-label="Search pages" spellcheck="false" autocomplete="off"><kbd>/</kbd></div>
   <nav id="nav" aria-label="Sections"></nav>
   <nav id="rail" aria-label="Sections (collapsed)"></nav>
   <div class="side-foot"><button class="side-tog" id="sideTog" type="button"><svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M9.5 4.5v15"/><path id="sideTogArrow" d="M15.5 10l-2 2 2 2"/></svg><span>Collapse sidebar</span></button></div>
@@ -75,6 +76,7 @@ if (!/\/$|\.html$/.test(location.pathname)) location.replace(location.pathname +
 <script src="vendor/xterm.js"></script>
 <script src="vendor/addon-fit.js"></script>
 <script src="js/core.js"></script>
+<script src="js/dropdown.js"></script>
 <script src="js/views.js"></script>
 <script src="js/resources.js"></script>
 <script src="js/termhl.js"></script>

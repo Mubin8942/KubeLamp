@@ -145,7 +145,8 @@ async function viewResource(route) {
   main.innerHTML = `<div class="page-head"><div><div class="crumbs"><a href="${ctxPath(ctx)}/overview">${esc(shortName(ctx))}</a>${group ? ` / <span class="mono">${esc(group)}</span>` : ''}</div>
       <h1>${esc(title)}</h1><div class="sub"><span>${res.namespaced ? (nsActive ? `Namespace ${esc(S.ns)}` : 'All namespaces') : 'Cluster-scoped'}</span><span class="muted mono">${esc(res.version)}</span></div></div>
       <div class="right"><button class="btn ghost" id="wideBtn" title="Show every column, like kubectl -o wide">Wide</button></div></div>
-    <div class="filters"><input type="search" id="rq" placeholder="Filter by name, label or any column" style="width:320px"><span class="count" id="rcount"></span></div>
+    <div class="filters"><input type="search" id="rq" placeholder="Filter by name, label or any column" style="width:320px"><span id="rFilt"></span><span class="count" id="rcount"></span></div>
+    <div id="rBulk"></div>
     <div class="card flush" id="rBox"><div class="muted" style="padding:16px">Loading…</div></div>
     ${resource === 'ingressroutes' && group.startsWith('traefik') ? '<div id="rtUnder"></div>' : ''}`;
   if ($('#rtUnder')) httpRoutesUnder(ctx, $('#rtUnder'));
@@ -177,12 +178,49 @@ async function viewResource(route) {
   };
   $('#wideBtn').onclick = () => { wide = !wide; $('#wideBtn').classList.toggle('on', wide); draw(); };
   $('#rq').addEventListener('input', () => draw());
+  // dropdown filters next to the search box: Status (any type with that column) and, for
+  // PersistentVolumes, the namespace of the claim. Default: all.
+  const isPV = resource === 'persistentvolumes' && group === '';
+  const colOf = name => data.columns.findIndex(c => c.name.toLowerCase() === name);
+  const claimNs = r => { const v = String(r.cells[colOf('claim')] ?? ''); return v.includes('/') ? v.split('/')[0] : ''; };
+  const filters = () => {
+    const out = [];
+    const st = colOf('status');
+    if (st >= 0) out.push({ id: 'rfStatus', label: 'Status', all: 'All', val: r => String(r.cells[st] ?? '') || '—' });
+    if (isPV && colOf('claim') >= 0) out.push({ id: 'rfClaim', label: 'Claim namespace', all: 'All', val: r => claimNs(r) || '(no claim)' });
+    return out;
+  };
+  const syncFilters = () => {
+    const box = $('#rFilt');
+    filters().forEach(f => {
+      let s = $('#' + f.id);
+      if (!s) {
+        box.insertAdjacentHTML('beforeend', `<select id="${f.id}" data-label="${esc(f.label)}"></select>`);
+        s = $('#' + f.id);
+        s.addEventListener('change', () => draw());
+      }
+      const counts = {};
+      data.rows.forEach(r => { const v = f.val(r); counts[v] = (counts[v] || 0) + 1; });
+      const keys = Object.keys(counts).sort((a, b) => a.localeCompare(b));
+      const sig = keys.map(k => k + counts[k]).join('|');
+      if (s.dataset.sig === sig) return;
+      const cur = s.value;
+      s.dataset.sig = sig;
+      s.innerHTML = `<option value="">${f.all}</option>` + keys.map(k => `<option value="${esc(k)}" data-meta="${counts[k]}">${esc(k)}</option>`).join('');
+      s.value = keys.includes(cur) ? cur : '';
+    });
+  };
+  const sel = bulkSet('res-' + resource);
+  const canDel = can(res, 'delete');
   const draw = () => {
     if (!data) return;
+    syncFilters();
     const q = $('#rq').value.toLowerCase();
     const showNs = res.namespaced && !nsActive;
     const colIdx = data.columns.map((c, i) => [c, i]).filter(([c]) => (wide || !c.priority) && c.name.toLowerCase() !== 'name');
-    const rows = data.rows.filter(r => !q || (r.name + ' ' + (r.namespace || '') + ' ' + JSON.stringify(r.cells) + ' ' + Object.entries(r.labels || {}).map(([k, v]) => k + '=' + v).join(' ')).toLowerCase().includes(q));
+    const active = filters().map(f => [f, $('#' + f.id)?.value || '']).filter(([, v]) => v);
+    const rows = data.rows.filter(r => (!q || (r.name + ' ' + (r.namespace || '') + ' ' + JSON.stringify(r.cells) + ' ' + Object.entries(r.labels || {}).map(([k, v]) => k + '=' + v).join(' ')).toLowerCase().includes(q))
+      && active.every(([f, v]) => f.val(r) === v));
     const cols = [{ key: 'name', label: 'Name', cls: 'name', render: r => `<a href="${richHref(ctx, res.kind, r.namespace, r.name) || objHref(ctx, group, resource, r.namespace, r.name)}">${esc(r.name)}</a>` }];
     if (showNs) cols.push({ key: 'namespace', label: 'Namespace' });
     colIdx.forEach(([c, i]) => cols.push({
@@ -193,9 +231,11 @@ async function viewResource(route) {
     if (isPvc) cols.push({ key: 'usage', label: 'Usage (df)', sort: r => S.pvc[pvcKey(ctx, r.namespace, r.name)]?.pct ?? -1,
       render: r => pvcCell(S.pvc[pvcKey(ctx, r.namespace, r.name)]) });
     cols.push({ key: 'act', label: '', nosort: true, cls: 'act', render: () => `<button class="icon-btn" data-menu title="Actions">${ICON.more}</button>` });
-    const t = table('res-' + resource, cols, rows, { sort: { key: 'name', dir: 'asc' } });
+    const key = r => (r.namespace || '') + '/' + r.name;
+    const t = table('res-' + resource, cols, rows, { sort: { key: 'name', dir: 'asc' }, select: canDel ? { key, set: sel, onChange: bar } : null });
     $('#rBox').innerHTML = t.html;
     t.bind($('#rBox'), draw);
+    bar();
     $$('[data-menu]', $('#rBox')).forEach(b => b.addEventListener('click', e => {
       e.stopPropagation();
       const r = t.rows[+b.closest('tr').dataset.i];
@@ -204,6 +244,12 @@ async function viewResource(route) {
     $('#rcount').textContent = `${rows.length} of ${data.rows.length}`;
     if (data.warnings?.length) $('#rBox').insertAdjacentHTML('afterbegin', `<div class="banner" style="margin:12px"><b>Partly visible.</b><span>${esc(data.warnings.join('; '))}</span></div>`);
   };
+  function bar() {
+    bulkBar($('#rBulk'), sel, { noun: res.kind, onClear: draw, onDelete: async () => {
+      const items = [...sel].map(k => { const [ns, name] = k.split('/'); return { ctx, group, resource, ns, name, kind: res.kind }; });
+      if (await bulkDelete(items, res.kind)) { sel.clear(); await load(); }
+    } });
+  }
   const load = async () => {
     try {
       const first = !data;

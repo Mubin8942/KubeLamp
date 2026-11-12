@@ -37,6 +37,20 @@ Point it at your kubeconfig and you get one web app for all your contexts. You c
 
 Lists show the same columns as `kubectl get`, including CRD printer columns. A **Wide** toggle adds the extra columns from `-o wide`.
 
+**Delete many at once:** every resource list, plus the Pods and Workloads pages, has checkboxes. Shift-click selects a range, and the header box selects everything shown. *Delete N* lists every name before deleting; 10 or more need the count typed in.
+- **Filters:** only rows you can see stay selected, so changing a filter never leaves hidden rows marked for deletion.
+- **How it runs:** deletes go 4 at a time, and failures are reported per object.
+
+**Filters next to the search box:** lists with a *Status* column (PersistentVolumes, PersistentVolumeClaims, and any type that has one) get a Status dropdown. PersistentVolumes also get *Claim namespace*. Both default to *All* and show a count per value.
+
+**Sidebar search:** press `/` or use *Search pages…* to find any page, including custom resources by name or API group. Arrow keys move, Enter opens, Esc clears.
+
+**Dropdowns:** every dropdown uses one style:
+- **Search:** a search box once a list has 9 or more options.
+- **Groups:** group headings with counts (for example Deployments / StatefulSets).
+- **Status:** ready pills such as `3/3`.
+- **Keyboard:** arrow keys, Enter, Esc, and type-ahead.
+
 **Run a CronJob now:** *Run now* in a CronJob's row menu, or on its page, creates a Job from the CronJob's template, like `kubectl create job --from=cronjob/<name>`, and opens it. The schedule isn't changed.
 - **Job name:** `<cronjob>-manual-<YYYYMMDD-HHMMSS>` (UTC), shortened to fit Kubernetes' 52-character limit. Its pods are named by Kubernetes: the Job name plus a short random suffix.
 - **Ownership:** the Job is owned by the CronJob (so it's cleaned up with it) and marked with `cronjob.kubernetes.io/instantiate: manual`.

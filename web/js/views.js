@@ -345,11 +345,17 @@ async function viewWorkloads(route) {
   const sum = (await api('clusters')).find(c => c.name === ctx);
   const kindQ = route.q.kind || '';
   main.innerHTML = clusterHead(sum, kindQ ? kindQ + 's' : 'Workloads', `<div class="crumbs"><a href="${ctxPath(ctx)}/overview">${esc(shortName(ctx))}</a></div>`) + `
-    <div class="filters"><select id="wkind"><option value="">All kinds</option>${['Deployment', 'StatefulSet', 'DaemonSet'].map(k => `<option ${k === kindQ ? 'selected' : ''}>${k}</option>`).join('')}</select>
-      <select id="whealth"><option value="">Any health</option><option value="healthy">Healthy</option><option value="unhealthy">Not healthy</option></select>
+    <div class="filters"><select id="wkind" data-label="Kind"><option value="">All kinds</option>${['Deployment', 'StatefulSet', 'DaemonSet'].map(k => `<option ${k === kindQ ? 'selected' : ''}>${k}</option>`).join('')}</select>
+      <select id="whealth" data-label="Health"><option value="">Any health</option><option value="healthy">Healthy</option><option value="unhealthy">Not healthy</option></select>
       <input type="search" id="wq" placeholder="Filter by name or image"><span class="count" id="wcount"></span></div>
+    <div id="wBulk"></div>
     <div class="card" id="wBox"><div class="muted">Loading…</div></div>`;
   bindRefresh(ctx, () => render());
+  const wsel = bulkSet('wl');
+  const wbar = () => bulkBar($('#wBulk'), wsel, { noun: kindQ || 'workload', onClear: render, onDelete: async () => {
+    const items = [...wsel].map(k => { const [kind, ns, name] = k.split('/'); const [g, r] = KIND_REF[kind]; return { ctx, group: g, resource: r, ns, name, kind }; });
+    if (await bulkDelete(items, kindQ || 'workload')) { wsel.clear(); await render(); }
+  } });
   const render = async () => {
     const d = await api(`workloads?ctx=${enc(ctx)}&ns=${enc(S.ns)}&kind=${enc($('#wkind').value)}`);
     const q = $('#wq').value.toLowerCase(), hf = $('#whealth').value;
@@ -365,8 +371,10 @@ async function viewWorkloads(route) {
       { key: 'spark', label: 'CPU 10m', nosort: true, render: w => spark(w.spark) },
       { key: 'created', label: 'Age', num: true, sort: w => -new Date(w.created), render: w => age(w.created) },
       { key: 'act', label: '', nosort: true, cls: 'act', render: w => `<a class="btn sm ghost" data-logs href="${ctxPath(ctx)}/logs?ns=${enc(w.namespace)}&kind=${enc(w.kind)}&name=${enc(w.name)}" title="Logs of all pods">${ICON.logs}Logs</a><button class="icon-btn" data-menu title="Actions">${ICON.more}</button>` },
-    ], rows, { href: w => `${ctxPath(ctx)}/wl/${enc(w.kind)}/${enc(w.namespace)}/${enc(w.name)}`, sort: { key: 'name', dir: 'asc' } });
+    ], rows, { href: w => `${ctxPath(ctx)}/wl/${enc(w.kind)}/${enc(w.namespace)}/${enc(w.name)}`, sort: { key: 'name', dir: 'asc' },
+      select: ro() ? null : { key: w => w.kind + '/' + w.namespace + '/' + w.name, set: wsel, onChange: wbar } });
     $('#wBox').innerHTML = t.html; t.bind($('#wBox'), render);
+    wbar();
     $$('[data-logs]', $('#wBox')).forEach(a => a.addEventListener('click', e => e.stopPropagation()));
     $$('[data-menu]', $('#wBox')).forEach(b => b.addEventListener('click', e => {
       e.stopPropagation();
@@ -462,8 +470,9 @@ async function viewPods(route) {
   const ctx = route.ctx;
   const sum = (await api('clusters')).find(c => c.name === ctx);
   main.innerHTML = clusterHead(sum, 'Pods', `<div class="crumbs"><a href="${ctxPath(ctx)}/overview">${esc(shortName(ctx))}</a></div>`) + `
-    <div class="filters"><select id="pst"><option value="">Any status</option><option value="problem">Needs attention</option><option value="Running">Running</option><option value="Pending">Pending</option><option value="Failed">Failed</option><option value="Succeeded">Completed</option></select>
+    <div class="filters"><select id="pst" data-label="Status"><option value="">Any status</option><option value="problem">Needs attention</option><option value="Running">Running</option><option value="Pending">Pending</option><option value="Failed">Failed</option><option value="Succeeded">Completed</option></select>
       <input type="search" id="pq" placeholder="Filter by name, owner or node"><span class="count" id="pcount"></span></div>
+    <div id="pBulk"></div>
     <div class="card" id="pBox"><div class="muted">Loading…</div></div>`;
   if (route.q.status) $('#pst').value = route.q.status;
   bindRefresh(ctx, () => render());
@@ -487,8 +496,15 @@ async function viewPods(route) {
       && (!stf || (stf === 'problem' ? p.problem : p.phase === stf)));
     const cols = podColumns(ctx, false);
     cols.push({ key: 'act', label: '', nosort: true, cls: 'act', render: p => `${ro() ? '' : `<button class="icon-btn" data-exec title="Exec shell">${ICON.term}</button>`}<button class="icon-btn" data-menu title="Actions">${ICON.more}</button>` });
-    const t = table('pods', cols, rows, { href: p => ctxPath(ctx) + '/pod/' + enc(p.namespace) + '/' + enc(p.name), limit: 1000 });
+    const psel = bulkSet('pods');
+    const pbar = () => bulkBar($('#pBulk'), psel, { noun: 'pod', onClear: render, onDelete: async () => {
+      const items = [...psel].map(k => { const [ns, name] = k.split('/'); return { ctx, group: '', resource: 'pods', ns, name, kind: 'Pod' }; });
+      if (await bulkDelete(items, 'pod')) { psel.clear(); await render(); }
+    } });
+    const t = table('pods', cols, rows, { href: p => ctxPath(ctx) + '/pod/' + enc(p.namespace) + '/' + enc(p.name), limit: 1000,
+      select: ro() ? null : { key: p => p.namespace + '/' + p.name, set: psel, onChange: pbar } });
     $('#pBox').innerHTML = t.html; t.bind($('#pBox'), render);
+    pbar();
     bindPodActions($('#pBox'), t.rows, ctx, render);
     $('#pcount').textContent = `${rows.length} of ${d.pods.length}`;
   };
@@ -545,7 +561,7 @@ async function viewEvents(route) {
   const ctx = route.ctx;
   const sum = (await api('clusters')).find(c => c.name === ctx);
   main.innerHTML = clusterHead(sum, 'Events', `<div class="crumbs"><a href="${ctxPath(ctx)}/overview">${esc(shortName(ctx))}</a></div>`) + `
-    <div class="filters"><select id="etype"><option value="Warning">Warnings</option><option value="">All types</option><option value="Normal">Normal</option></select>
+    <div class="filters"><select id="etype" data-label="Type"><option value="Warning">Warnings</option><option value="">All types</option><option value="Normal">Normal</option></select>
       <input type="search" id="eq" placeholder="Filter by reason, object or message"><span class="count" id="ecount"></span></div>
     <div class="card" id="eBox"><div class="muted">Loading…</div></div>`;
   bindRefresh(ctx, () => render());
@@ -583,20 +599,20 @@ async function viewLogs(route) {
   main.innerHTML = `<div class="logs-page">
     <div class="page-head" style="margin-bottom:10px"><div><div class="crumbs"><a href="${ctxPath(ctx)}/overview">${esc(shortName(ctx))}</a></div><h1>Logs</h1></div></div>
     <div class="logbar">
-      <select id="lns" title="Namespace">${await nsOptions(ctx, q.ns || S.ns || '', 'Namespace…')}</select>
-      <select id="lwl" title="Deployment / workload" style="min-width:220px"><option value="">Deployment…</option></select>
+      <select id="lns" data-label="Namespace">${await nsOptions(ctx, q.ns || S.ns || '', 'Namespace…')}</select>
+      <select id="lwl" data-label="Workload" style="min-width:220px"><option value="">Choose a workload…</option></select>
       <button class="btn ${q.selector ? 'on' : ''}" id="selMode" title="Use a custom label selector instead">Label selector</button>
       <input type="text" id="lsel" placeholder="app=web,tier=api" spellcheck="false" style="width:220px" ${q.selector ? '' : 'hidden'} value="${esc(q.selector || '')}">
-      <select id="lct" title="Container"><option value="">All containers</option></select>
-      <select id="ltail" title="Lines per container">${[100, 200, 500, 1000, 5000].map(n => `<option ${n == (q.tail || 200) ? 'selected' : ''} value="${n}">last ${n}</option>`).join('')}</select>
-      <select id="lsince" title="Time window"><option value="">any time</option><option value="300">5 min</option><option value="900">15 min</option><option value="3600">1 hour</option><option value="21600">6 hours</option><option value="86400">24 hours</option></select>
+      <select id="lct" data-label="Containers"><option value="">All</option></select>
+      <select id="ltail" data-label="Lines" title="Lines per container">${[100, 200, 500, 1000, 5000].map(n => `<option ${n == (q.tail || 200) ? 'selected' : ''} value="${n}">last ${n}</option>`).join('')}</select>
+      <select id="lsince" data-label="Since" title="Time window"><option value="">any time</option><option value="300">5 min</option><option value="900">15 min</option><option value="3600">1 hour</option><option value="21600">6 hours</option><option value="86400">24 hours</option></select>
       <label class="ck"><input type="checkbox" id="lfollow" ${L.follow ? 'checked' : ''}>Follow</label>
       <label class="ck" title="Logs from the previous (crashed) container instance"><input type="checkbox" id="lprev">Previous</label>
     </div>
     <div class="logbar">
       <input type="search" id="lq" placeholder="Search… (regex ok)" style="width:260px">
       <label class="ck"><input type="checkbox" id="lonly">Only matching</label>
-      <select id="llevel"><option value="">All levels</option><option value="warn">Warn + error</option><option value="error">Errors only</option></select>
+      <select id="llevel" data-label="Level"><option value="">All levels</option><option value="warn">Warn + error</option><option value="error">Errors only</option></select>
       <span class="grow"></span>
       <label class="ck"><input type="checkbox" id="lts" checked>Timestamps</label>
       <label class="ck"><input type="checkbox" id="lwrap">Wrap</label>
@@ -611,10 +627,10 @@ async function viewLogs(route) {
   const view = $('#lview');
   const fillWorkloads = async () => {
     const ns = $('#lns').value;
-    if (!ns) { $('#lwl').innerHTML = '<option value="">Deployment…</option>'; return; }
+    if (!ns) { $('#lwl').innerHTML = '<option value="">Choose a workload…</option>'; return; }
     const d = await api(`workloads?ctx=${enc(ctx)}&ns=${enc(ns)}`);
     const by = k => d.workloads.filter(w => w.kind === k);
-    $('#lwl').innerHTML = '<option value="">Deployment…</option>' + ['Deployment', 'StatefulSet', 'DaemonSet'].filter(k => by(k).length)
+    $('#lwl').innerHTML = '<option value="">Choose a workload…</option>' + ['Deployment', 'StatefulSet', 'DaemonSet'].filter(k => by(k).length)
       .map(k => `<optgroup label="${k}s">${by(k).map(w => `<option value="${esc(k + '/' + w.name)}" ${q.kind === k && q.name === w.name ? 'selected' : ''}>${esc(w.name)} (${w.ready}/${w.desired})</option>`).join('')}</optgroup>`).join('');
   };
   await fillWorkloads();
@@ -720,7 +736,7 @@ async function viewLogs(route) {
     }));
     const cts = [...new Set(L.pods.flatMap(p => p.containers))];
     const cur = $('#lct').value;
-    if (!cur) $('#lct').innerHTML = '<option value="">All containers</option>' + cts.map(c => `<option>${esc(c)}</option>`).join('');
+    if (!cur) $('#lct').innerHTML = '<option value="">All</option>' + cts.map(c => `<option>${esc(c)}</option>`).join('');
   };
 
   // ---- streaming (fetch + manual SSE parsing so errors are readable and nothing auto-reconnects)
@@ -777,7 +793,7 @@ async function viewLogs(route) {
 
   // ---- controls
   $('#lns').addEventListener('change', async () => { await fillWorkloads(); start(); });
-  $('#lwl').addEventListener('change', () => { podOnly = ''; $('#podOnly')?.remove(); $('#lct').innerHTML = '<option value="">All containers</option>'; start(); });
+  $('#lwl').addEventListener('change', () => { podOnly = ''; $('#podOnly')?.remove(); $('#lct').innerHTML = '<option value="">All</option>'; start(); });
   $('#selMode').addEventListener('click', () => {
     const on = $('#lsel').hidden; $('#lsel').hidden = !on; $('#lwl').hidden = on; $('#selMode').classList.toggle('on', on);
     if (on) $('#lsel').focus(); else start();

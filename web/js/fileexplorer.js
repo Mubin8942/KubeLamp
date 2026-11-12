@@ -151,7 +151,7 @@ async function viewFileExplorer(route) {
         <button class="btn sm" id="fxClose" title="Close">✕</button></div>
       <div class="ft-bar fx-tools">
         <div class="seg" id="fxMode"><button type="button" data-m="head" class="${V.mode === 'head' ? 'on' : ''}">Start</button><button type="button" data-m="tail" class="${V.mode === 'tail' ? 'on' : ''}">End</button></div>
-        <select id="fxBytes" title="How much to read">${FX_SIZES.map(([n, l]) => `<option value="${n}" ${n === F.bytes ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        <select id="fxBytes" data-label="Read" title="How much to read">${FX_SIZES.map(([n, l]) => `<option value="${n}" ${n === F.bytes ? 'selected' : ''}>${l}</option>`).join('')}</select>
         <input type="search" id="fxFind" placeholder="Find in text…" value="${esc(V.find)}" style="width:170px">
         <label class="chk"><input type="checkbox" id="fxOnly" ${V.only ? 'checked' : ''}> only matching lines</label>
         <label class="chk"><input type="checkbox" id="fxWrap" ${F.wrap ? 'checked' : ''}> wrap</label>
