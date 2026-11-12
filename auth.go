@@ -36,9 +36,11 @@ import (
 // Each user has their own folder <data>/users/<id>/ with their kubeconfigs and settings,
 // and their own cluster connections: users never see each other's clusters.
 //
-// Sessions are random 256-bit IDs in an HttpOnly, SameSite=Strict cookie, kept in memory
-// (only their SHA-256 is stored), expiring after 12 h idle or 7 days; a restart logs
-// everyone out.
+// Sessions are random 256-bit IDs in an HttpOnly, SameSite=Strict cookie, expiring after
+// 12 h idle or 7 days. They are kept in <data>/sessions.json (mode 600) so a restart
+// doesn't sign anyone out; the file holds only the SHA-256 of each ID, so reading it
+// doesn't let anyone sign in. Sign-out, password changes and deletions are written at
+// once; "last seen" times at most once a minute.
 
 // pbkdfIter is the PBKDF2 work factor for new hashes (a var so tests can run faster;
 // existing hashes keep their own count).
@@ -95,6 +97,7 @@ type UserStore struct {
 	mu        sync.Mutex
 	users     []*User
 	sessions  map[string]*session // sha256(session id) → session
+	sessSaved time.Time           // last write of sessions.json
 	fails     map[string]*failure // login throttling, per username+client
 	regs      map[string]*Registry
 	inCluster *resolvedContext // given to admins only
@@ -224,6 +227,7 @@ func openUserStore(dataDir, adminUser, adminPwd string, ic *resolvedContext, boo
 		if len(s.users) == 0 {
 			return nil, fmt.Errorf("%s has no users; delete it to create the admin again", s.file())
 		}
+		s.loadSessions()
 		return s, nil
 	}
 	if !os.IsNotExist(err) {
@@ -353,11 +357,69 @@ func (s *UserStore) dropRegistry(id string) {
 
 // ---------------------------------------------------------------- sessions
 
+func (s *UserStore) sessFile() string { return filepath.Join(s.dir, "sessions.json") }
+
+type savedSession struct {
+	Key      string    `json:"key"` // sha256 of the session ID, never the ID itself
+	User     string    `json:"user"`
+	Created  time.Time `json:"created"`
+	LastSeen time.Time `json:"lastSeen"`
+}
+
+// saveSessions writes sessions.json atomically. Callers hold s.mu.
+func (s *UserStore) saveSessions() {
+	out := []savedSession{}
+	for k, ss := range s.sessions {
+		out = append(out, savedSession{Key: k, User: ss.userID, Created: ss.created, LastSeen: ss.lastSeen})
+	}
+	b, _ := json.Marshal(map[string]any{"sessions": out})
+	tmp := s.sessFile() + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		log.Printf("warning: cannot save sessions (users will be signed out on restart): %v", err)
+		return
+	}
+	if err := os.Rename(tmp, s.sessFile()); err != nil {
+		log.Printf("warning: cannot save sessions: %v", err)
+		return
+	}
+	s.sessSaved = time.Now()
+}
+
+// loadSessions restores sessions after a restart, dropping expired ones and those of
+// users that no longer exist.
+func (s *UserStore) loadSessions() {
+	b, err := os.ReadFile(s.sessFile())
+	if err != nil {
+		return
+	}
+	var f struct {
+		Sessions []savedSession `json:"sessions"`
+	}
+	if json.Unmarshal(b, &f) != nil {
+		log.Printf("warning: %s is unreadable; everyone signs in again", s.sessFile())
+		return
+	}
+	now := time.Now()
+	dropped := 0
+	for _, x := range f.Sessions {
+		if len(x.Key) != 64 || s.byID(x.User) == nil || now.Sub(x.LastSeen) > sessionIdle || now.Sub(x.Created) > sessionMax {
+			dropped++
+			continue
+		}
+		s.sessions[x.Key] = &session{userID: x.User, created: x.Created, lastSeen: x.LastSeen}
+	}
+	if dropped > 0 {
+		s.saveSessions()
+	}
+	s.sessSaved = now
+}
+
 func (s *UserStore) newSession(u *User) string {
 	id := randToken(32)
 	now := time.Now()
 	s.mu.Lock()
 	s.sessions[sessKey(id)] = &session{userID: u.ID, created: now, lastSeen: now}
+	s.saveSessions()
 	s.mu.Unlock()
 	return id
 }
@@ -377,21 +439,29 @@ func (s *UserStore) sessionUser(id string) *User {
 	now := time.Now()
 	if now.Sub(ss.lastSeen) > sessionIdle || now.Sub(ss.created) > sessionMax {
 		delete(s.sessions, k)
+		s.saveSessions()
 		return nil
 	}
 	u := s.byID(ss.userID)
 	if u == nil {
 		delete(s.sessions, k)
+		s.saveSessions()
 		return nil
 	}
 	ss.lastSeen = now
+	if now.Sub(s.sessSaved) > time.Minute { // activity: at most one write a minute
+		s.saveSessions()
+	}
 	cp := *u // a snapshot: handlers read it without holding the lock
 	return &cp
 }
 
 func (s *UserStore) endSession(id string) {
 	s.mu.Lock()
-	delete(s.sessions, sessKey(id))
+	if _, ok := s.sessions[sessKey(id)]; ok {
+		delete(s.sessions, sessKey(id))
+		s.saveSessions() // at once: a restart must not bring it back
+	}
 	s.mu.Unlock()
 }
 
@@ -402,10 +472,15 @@ func (s *UserStore) endSessions(userID, keep string) {
 		kk = sessKey(keep)
 	}
 	s.mu.Lock()
+	n := 0
 	for k, ss := range s.sessions {
 		if ss.userID == userID && k != kk {
 			delete(s.sessions, k)
+			n++
 		}
+	}
+	if n > 0 {
+		s.saveSessions()
 	}
 	s.mu.Unlock()
 }

@@ -149,7 +149,7 @@ Choosing a namespace in the top namespace picker opens its overview.
 - **Private clusters:** every user uploads their own kubeconfigs and sees only their own clusters. Kubeconfigs are stored in `<data>/users/<id>/`, readable only by the KubeLamp process.
 - **Admin-only:** managing users, loading kubeconfig files from the server's disk, the in-cluster connection, the local shell, and *Stop server*.
 - **Password storage:** `<data>/users.json` (mode 600) holds only salted PBKDF2-SHA256 hashes (600,000 rounds), never the passwords.
-- **Sessions:** an HttpOnly, SameSite=Strict cookie (Secure over HTTPS) that ends after 12 h idle or 7 days, on sign-out, or when the password changes. A restart signs everyone out.
+- **Sessions:** an HttpOnly, SameSite=Strict cookie (Secure over HTTPS) that ends after 12 h idle or 7 days, on sign-out, or when the password changes. Sessions are kept in `<data>/sessions.json` (mode 600, only SHA-256 hashes of the session IDs), so restarting KubeLamp or its pod doesn't sign anyone out.
 - **Brute force:** after 5 wrong passwords, sign-in for that user waits (30 s, doubling up to 15 min).
 - **Upgrading:** kubeconfigs added before accounts existed are moved to the first admin. The old `-token` / `KUBELAMP_TOKEN(_FILE)` settings are ignored.
 

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func init() { pbkdfIter = 1000 } // fast hashes in tests; production uses 600k
@@ -160,6 +161,16 @@ func (c *tc) list(path string) []any {
 	var v []any
 	_ = json.NewDecoder(r.Body).Decode(&v)
 	return v
+}
+
+func (c *tc) sessionFor(base string) string {
+	u, _ := url.Parse(base)
+	for _, k := range c.c.Jar.Cookies(u) {
+		if k.Name == sessionCookie {
+			return k.Value
+		}
+	}
+	return ""
 }
 
 func (c *tc) session() string {
@@ -434,3 +445,101 @@ func TestLocalAdminMayUseExecPlugins(t *testing.T) {
 }
 
 func mustURL(s string) *url.URL { u, _ := url.Parse(s); return u }
+
+func TestSessionsSurviveRestart(t *testing.T) {
+	dir := t.TempDir()
+	us, err := openUserStore(dir, "admin", "Admin-pass-123", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin := us.users[0]
+	bob := &User{ID: "bob1", Username: "bob", Role: "user", Hash: hashPassword("bob-pass-123")}
+	us.users = append(us.users, bob)
+	us.save()
+	keep := us.newSession(admin)
+	gone := us.newSession(admin)
+	bobs := us.newSession(bob)
+	us.endSession(gone) // signed out before the restart
+
+	// the file: mode 600, only hashes
+	st, err := os.Stat(filepath.Join(dir, "sessions.json"))
+	if err != nil || st.Mode().Perm() != 0o600 {
+		t.Fatalf("sessions.json: %v %v", st, err)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "sessions.json"))
+	for _, id := range []string{keep, gone, bobs} {
+		if bytes.Contains(b, []byte(id)) {
+			t.Fatal("a raw session ID is on disk")
+		}
+	}
+
+	// "restart": a new store from the same folder
+	us2, err := openUserStore(dir, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u := us2.sessionUser(keep); u == nil || u.Username != "admin" {
+		t.Fatal("session lost on restart")
+	}
+	if us2.sessionUser(gone) != nil {
+		t.Fatal("a signed-out session came back after restart")
+	}
+	if us2.sessionUser(bobs) == nil {
+		t.Fatal("bob's session lost")
+	}
+
+	// password change / reset elsewhere ends sessions, also across restarts
+	us2.endSessions(bob.ID, "")
+	us3, _ := openUserStore(dir, "", "", nil, nil)
+	if us3.sessionUser(bobs) != nil {
+		t.Fatal("ended sessions must stay ended after restart")
+	}
+
+	// deleted users and expired sessions are dropped on load
+	us3.mu.Lock()
+	k := sessKey(keep)
+	us3.sessions[k].lastSeen = time.Now().Add(-sessionIdle - time.Minute)
+	us3.saveSessions()
+	us3.mu.Unlock()
+	us4, _ := openUserStore(dir, "", "", nil, nil)
+	if us4.sessionUser(keep) != nil || len(us4.sessions) != 0 {
+		t.Fatalf("expired session restored: %d left", len(us4.sessions))
+	}
+	s5 := us4.newSession(bob)
+	us4.users = us4.users[:1] // bob deleted
+	us4.save()
+	us5, _ := openUserStore(dir, "", "", nil, nil)
+	if us5.sessionUser(s5) != nil {
+		t.Fatal("session of a deleted user restored")
+	}
+	// a broken file doesn't stop the server
+	os.WriteFile(filepath.Join(dir, "sessions.json"), []byte("{oops"), 0o600)
+	if _, err := openUserStore(dir, "", "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSessionRestartHTTP(t *testing.T) {
+	dir := t.TempDir()
+	us, _ := openUserStore(dir, "admin", "Admin-pass-123", nil, nil)
+	ts := httptest.NewServer((&Server{reg: &Registry{}, users: us, dataDir: dir}).routes())
+	c := newTC(t, ts.URL)
+	if code, _ := c.do("POST", "/api/auth/login", map[string]string{"username": "admin", "password": "Admin-pass-123"}); code != 200 {
+		t.Fatal("login")
+	}
+	ts.Close()
+	// new process, same /data
+	us2, _ := openUserStore(dir, "", "", nil, nil)
+	ts2 := httptest.NewServer((&Server{reg: &Registry{}, users: us2, dataDir: dir}).routes())
+	defer ts2.Close()
+	c.base = ts2.URL
+	c.c.Jar.SetCookies(mustURL(ts2.URL), []*http.Cookie{{Name: sessionCookie, Value: c.sessionFor(ts.URL)}})
+	if code, _ := c.do("GET", "/api/auth/me", nil); code != 200 {
+		t.Fatalf("still signed in after restart: %d", code)
+	}
+	c.do("POST", "/api/auth/logout", nil)
+	us3, _ := openUserStore(dir, "", "", nil, nil)
+	if len(us3.sessions) != 0 {
+		t.Fatal("logout not persisted")
+	}
+}
