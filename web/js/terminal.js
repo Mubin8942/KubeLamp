@@ -22,8 +22,17 @@ const Term = (() => {
   const wsURL = path => (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + apiURL(path);
   const tabIcon = t => `<svg class="ico" viewBox="0 0 24 24">${t.kind === 'exec' ? '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8.5 10l2.5 2-2.5 2M13 14.5h3"/>' : '<path d="M5 8l4 4-4 4M11 17h8"/>'}</svg>`;
 
+  // hidden with sessions still open: a floating bar at the bottom brings them back
+  function updateMin() {
+    const min = $('#termMin');
+    min.hidden = !drawer.hidden || !tabs.length;
+    if (min.hidden) return;
+    const live = tabs.filter(t => !t.dead).length;
+    $('#termMinTxt').textContent = tabs.length === 1 ? `Terminal · ${tabs[0].title}` : `Terminal · ${tabs.length} sessions${live < tabs.length ? ` (${tabs.length - live} closed)` : ''}`;
+  }
   function show(open = true) {
     drawer.hidden = !open;
+    updateMin();
     $('#termToggle').classList.toggle('on', open);
     try { localStorage.setItem('kd.term.open', open ? '1' : ''); } catch {}
     if (!open && full) setFull(false);
@@ -37,6 +46,7 @@ const Term = (() => {
   // ---- layout
   const targets = () => tabs.filter(t => t.bc && !t.dead && t.ws && t.ws.readyState === 1);
   function renderTabs() {
+    updateMin();
     tabsEl.innerHTML = tabs.map(t => `<button class="term-tab ${t.kind} ${t === active ? 'on' : ''} ${t.dead ? 'dead' : ''} ${broadcast && t.bc ? 'bc' : ''}" data-id="${t.id}" role="tab" title="${esc(t.tip)}">
       ${tabIcon(t)}<span>${esc(t.title)}</span><span class="x" data-close="${t.id}" title="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></span></button>`).join('');
     $$('.term-tab', tabsEl).forEach(b => b.addEventListener('click', e => {
@@ -259,6 +269,7 @@ const Term = (() => {
   window.addEventListener('resize', fitAll);
   $('#termToggle').addEventListener('click', toggle);
   $('#termHide').addEventListener('click', () => show(false));
+  $('#termMin').addEventListener('click', () => show(true));
   $('#termNew').addEventListener('click', () => newShell());
   $('#termFull').addEventListener('click', () => setFull(!full));
   $('#termSplit').addEventListener('click', () => setSplit(!split));

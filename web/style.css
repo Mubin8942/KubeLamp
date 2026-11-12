@@ -865,3 +865,13 @@ body.side-min .side-search { display: none; }
 .bulk-list { max-height: 220px; overflow: auto; margin: 0; padding: 8px 10px 8px 26px; border: 1px solid var(--line); border-radius: 8px; font: 12.5px/1.7 var(--mono); }
 .bulkbar .grow { flex: 1; }
 .filters .dd { height: 32px; }
+#rFilt { display: contents; } /* its dropdowns share the .filters gap */
+.term-min { position: fixed; right: 18px; bottom: 16px; z-index: 55; display: inline-flex; align-items: center; gap: 9px; height: 38px; padding: 0 12px 0 14px;
+  border-radius: 999px; border: 1px solid #263345; background: #0b1016; color: #e6edf3; font: 13px var(--sans); cursor: pointer; box-shadow: 0 10px 30px rgba(0,0,0,.35);
+  max-width: min(420px, calc(100vw - 36px)); }
+.term-min span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.term-min svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.term-min .up { color: var(--accent-ink); stroke-width: 2.2; }
+.term-min:hover { border-color: var(--accent); }
+.term-min::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 3px rgba(12,163,12,.2); order: -1; }
+body:has(.toasts:not(:empty)) .term-min { bottom: 70px; }

@@ -188,6 +188,8 @@ async function viewResource(route) {
     const st = colOf('status');
     if (st >= 0) out.push({ id: 'rfStatus', label: 'Status', all: 'All', val: r => String(r.cells[st] ?? '') || '—' });
     if (isPV && colOf('claim') >= 0) out.push({ id: 'rfClaim', label: 'Claim namespace', all: 'All', val: r => claimNs(r) || '(no claim)' });
+    const sc = colOf('storageclass');
+    if (sc >= 0) out.push({ id: 'rfClass', label: 'StorageClass', all: 'All', val: r => String(r.cells[sc] ?? '') || '(none)' });
     return out;
   };
   const syncFilters = () => {

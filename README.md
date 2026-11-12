@@ -41,7 +41,7 @@ Lists show the same columns as `kubectl get`, including CRD printer columns. A *
 - **Filters:** only rows you can see stay selected, so changing a filter never leaves hidden rows marked for deletion.
 - **How it runs:** deletes go 4 at a time, and failures are reported per object.
 
-**Filters next to the search box:** lists with a *Status* column (PersistentVolumes, PersistentVolumeClaims, and any type that has one) get a Status dropdown. PersistentVolumes also get *Claim namespace*. Both default to *All* and show a count per value.
+**Filters next to the search box:** lists with a *Status* column (PersistentVolumes, PersistentVolumeClaims, and any type that has one) get a Status dropdown. PersistentVolumes also get *Claim namespace*, and lists with a *StorageClass* column get a StorageClass dropdown. All default to *All* and show a count per value.
 
 **Sidebar search:** press `/` or use *Search pages…* to find any page, including custom resources by name or API group. Arrow keys move, Enter opens, Esc clears.
 
