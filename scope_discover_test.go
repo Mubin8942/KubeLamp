@@ -29,7 +29,10 @@ func (f *fakeAPI) handler(prefix string) http.Handler {
 			return
 		}
 		p := strings.TrimPrefix(r.URL.Path, prefix)
-		forbid := func() { w.WriteHeader(403); _ = json.NewEncoder(w).Encode(map[string]any{"kind": "Status", "code": 403, "message": "forbidden"}) }
+		forbid := func() {
+			w.WriteHeader(403)
+			_ = json.NewEncoder(w).Encode(map[string]any{"kind": "Status", "code": 403, "message": "forbidden"})
+		}
 		switch {
 		case p == "/v1/namespaces" && r.Method == "GET":
 			f.steveHits.Add(1)
