@@ -37,6 +37,11 @@ Point it at your kubeconfig and you get one web app for all your contexts. You c
 
 Lists show the same columns as `kubectl get`, including CRD printer columns. A **Wide** toggle adds the extra columns from `-o wide`.
 
+**Run a CronJob now:** *Run now* in a CronJob's row menu, or on its page, creates a Job from the CronJob's template, like `kubectl create job --from=cronjob/<name>`, and opens it. The schedule isn't changed.
+- **Job name:** `<cronjob>-manual-<YYYYMMDD-HHMMSS>` (UTC), shortened to fit Kubernetes' 52-character limit. Its pods are named by Kubernetes: the Job name plus a short random suffix.
+- **Ownership:** the Job is owned by the CronJob (so it's cleaned up with it) and marked with `cronjob.kubernetes.io/instantiate: manual`.
+- **Permissions:** it needs `create` on `jobs` in that namespace, and it's disabled in read-only mode.
+
 **Manage resources:**
 - **View and edit YAML.** Applying replaces the object, and stale edits are rejected so you never overwrite someone else's change.
 - **Delete, scale, rollout restart, cordon / uncordon.**

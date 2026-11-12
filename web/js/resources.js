@@ -23,6 +23,7 @@ function findRes(ctx, group, resource) {
   return (S.disc[ctx]?.resources || []).find(r => r.group === group && r.resource === resource);
 }
 const plural = r => r ? (r.kind.endsWith('y') ? r.kind.slice(0, -1) + 'ies' : r.kind.endsWith('s') ? r.kind + 'es' : r.kind + 's') : '';
+const ICON_PLAY = '<svg viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z"/></svg>';
 const can = (r, verb) => !ro() && (!r || (r.verbs || []).includes(verb));
 
 // ------------------------------------------------------------------ actions
@@ -58,6 +59,20 @@ const A = {
     if (!ok) return false;
     try { await send('POST', 'action', { ctx, group, resource, ns, name, action: 'restart' }); toast(`Restarted ${name}`); return true; }
     catch (e) { toast(e.message, 'err'); return false; }
+  },
+  // CronJob → create a Job from its template now; the Job is <cronjob>-manual-<UTC time>
+  async trigger(ctx, ns, name) {
+    const ts = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
+    const ok = await modal({ title: `Run ${name} now?`,
+      body: `<p>Creates a Job from this CronJob's template, like <code>kubectl create job --from=cronjob/${esc(name)}</code>. The schedule isn't changed.</p>
+        <p class="muted">Job: <code>${esc(name)}-manual-${ts}</code> (UTC). Its pods are named after the Job plus a short random suffix.</p>`,
+      actions: [{ label: 'Cancel', value: false }, { label: 'Run now', kind: 'primary', value: true, submit: true }] });
+    if (!ok) return null;
+    try {
+      const d = await send('POST', 'action', { ctx, group: 'batch', resource: 'cronjobs', ns, name, action: 'trigger' });
+      toast(`Started Job ${d.job}`);
+      return d.job;
+    } catch (e) { toast(e.message, 'err'); return null; }
   },
   async cordon(ctx, name, on) {
     try { await send('POST', 'action', { ctx, group: '', resource: 'nodes', ns: '', name, action: on ? 'cordon' : 'uncordon' }); toast(`${on ? 'Cordoned' : 'Uncordoned'} ${name}`); return true; }
@@ -102,6 +117,9 @@ function objectMenu(anchor, o, after) {
     items.push({ label: 'Logs of all pods', icon: ICON.logs, run: () => A.logs(ctx, ns, kind, name) });
     if (!ro() && kind !== 'DaemonSet') items.push({ label: 'Scale…', icon: ICON.scale, run: async () => { if (await A.scale(ctx, group, resource, ns, name, o.replicas)) after && after(); } });
     if (!ro()) items.push({ label: 'Restart', icon: ICON.restart, run: async () => { if (await A.restart(ctx, group, resource, ns, name, kind)) after && after(); } });
+  }
+  if (kind === 'CronJob' && !ro() && can(findRes(ctx, 'batch', 'jobs'), 'create')) {
+    items.push({ label: 'Run now', icon: ICON_PLAY, run: async () => { const job = await A.trigger(ctx, ns, name); if (job) location.hash = objHref(ctx, 'batch', 'jobs', ns, job); } });
   }
   if (kind === 'Node' && !ro()) {
     items.push({ label: o.cordoned ? 'Uncordon' : 'Cordon', icon: ICON.pause, run: async () => { if (await A.cordon(ctx, name, !o.cordoned)) after && after(); } });
@@ -263,6 +281,7 @@ async function viewObject(route) {
   if (rich) actions.push(`<a class="btn" href="${rich}">${ICON.eye}Dashboard</a>`);
   if (kind === 'Pod' && !ro()) actions.push(`<button class="btn" data-act="exec">${ICON.term}Exec</button>`);
   if (['Deployment', 'StatefulSet', 'DaemonSet'].includes(kind)) actions.push(`<button class="btn" data-act="logs">${ICON.logs}Logs</button>`);
+  if (kind === 'CronJob' && !ro() && can(findRes(ctx, 'batch', 'jobs'), 'create')) actions.push(`<button class="btn primary" data-act="trigger">${ICON_PLAY}Run now</button>`);
   actions.push(`<button class="btn" data-act="yaml">${ICON.edit}${editable ? 'Edit YAML' : 'YAML'}</button>`);
   if (can(res, 'delete')) actions.push(`<button class="btn danger" data-act="delete">${ICON.del}Delete</button>`);
   actions.push(`<button class="btn ghost" data-act="more" title="More actions">${ICON.more}</button>`);
@@ -277,6 +296,7 @@ async function viewObject(route) {
     const a = b.dataset.act;
     if (a === 'exec') A.exec(ctx, ns, name, (o.spec?.containers || []).map(c => c.name));
     if (a === 'logs') A.logs(ctx, ns, kind, name);
+    if (a === 'trigger') A.trigger(ctx, ns, name).then(job => { if (job) location.hash = objHref(ctx, 'batch', 'jobs', ns, job); });
     if (a === 'yaml') show('yaml');
     if (a === 'delete') A.del(ctx, group, resource, ns, name, kind).then(ok => { if (ok) location.hash = listHref(ctx, group, resource); });
     if (a === 'more') objectMenu(b, { ctx, group, resource, ns, name, kind, replicas: o.spec?.replicas, cordoned: o.spec?.unschedulable, containers: (o.spec?.containers || []).map(c => c.name) },

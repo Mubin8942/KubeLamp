@@ -467,7 +467,7 @@ func (s *Server) resourceRoutes(mux *http.ServeMux) {
 		writeJSON(w, 200, map[string]bool{"ok": true})
 	})
 
-	// Quick actions: scale, rollout restart, cordon / uncordon.
+	// Quick actions: scale, rollout restart, cordon / uncordon, run a CronJob now.
 	mux.HandleFunc("POST /api/action", func(w http.ResponseWriter, r *http.Request) {
 		if s.denyWrite(w) {
 			return
@@ -489,6 +489,20 @@ func (s *Server) resourceRoutes(mux *http.ServeMux) {
 		res, err := c.findResource(r.Context(), req.Group, req.Resource)
 		if err != nil {
 			writeErr(w, 404, err)
+			return
+		}
+		if req.Action == "trigger" { // CronJob → run now
+			if res.Kind != "CronJob" {
+				writeErr(w, 400, errors.New("run now works on CronJobs"))
+				return
+			}
+			job, err := runCronJob(r.Context(), c, req.NS, req.Name)
+			if err != nil {
+				writeErr(w, apiStatus(err), errors.New(friendlyErr(err)))
+				return
+			}
+			c.poke()
+			writeJSON(w, 200, map[string]any{"ok": true, "job": job})
 			return
 		}
 		path := resPath(res, req.NS, req.Name)
