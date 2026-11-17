@@ -45,14 +45,46 @@ func (c *cluster) probeDaemonSets(w http.ResponseWriter, r *http.Request, rt rou
 		}
 		md["namespace"], md["creationTimestamp"] = rt.ns, time.Now().UTC().Format(time.RFC3339)
 		c.mu.Lock()
-		ds["status"] = obj{"desiredNumberScheduled": len(c.nodes)}
 		var started []*pod
+		only := map[string]bool{} // spec.template.spec.affinity: matchFields metadata.name In [...]
+		if b, err := json.Marshal(ds["spec"]); err == nil {
+			var sp struct {
+				Template struct {
+					Spec struct {
+						Affinity struct {
+							NodeAffinity struct {
+								Req struct {
+									Terms []struct {
+										MatchFields []struct {
+											Key    string   `json:"key"`
+											Values []string `json:"values"`
+										} `json:"matchFields"`
+									} `json:"nodeSelectorTerms"`
+								} `json:"requiredDuringSchedulingIgnoredDuringExecution"`
+							} `json:"nodeAffinity"`
+						} `json:"affinity"`
+					} `json:"spec"`
+				} `json:"template"`
+			}
+			json.Unmarshal(b, &sp)
+			for _, t := range sp.Template.Spec.Affinity.NodeAffinity.Req.Terms {
+				for _, f := range t.MatchFields {
+					for _, v := range f.Values {
+						only[v] = true
+					}
+				}
+			}
+		}
 		for _, n := range c.nodes {
+			if len(only) > 0 && !only[n] {
+				continue
+			}
 			p := &pod{ns: rt.ns, name: name + "-" + suffix(c.rng)[:5], deploy: name, kind: "DaemonSet", node: n, status: "Running",
 				labels: tl, containers: []string{"probe"}, cpuBase: 1, memBase: 4, reqCPU: 5, reqMem: 16, limCPU: 200, limMem: 64, created: time.Now()}
 			c.pods = append(c.pods, p)
 			started = append(started, p)
 		}
+		ds["status"] = obj{"desiredNumberScheduled": len(started)}
 		c.mu.Unlock()
 		go func() { // like a real cluster: the image pull and start take a moment
 			time.Sleep(3 * time.Second)

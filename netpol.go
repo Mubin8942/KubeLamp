@@ -171,9 +171,6 @@ func (c *Cluster) loadPolicyEnv(ctx context.Context, snap *Snapshot, ns string) 
 			}
 		}
 	}
-	if snap.Scope == "namespaced" {
-		e.Warnings = append(e.Warnings, "Your credentials only cover some namespaces, so pods and nodes elsewhere are not visible: a policy rule that targets them cannot be matched and may show as blocked or unknown.")
-	}
 	nsPath := url.PathEscape(ns)
 	nps, err := list[NetPol](ctx, c.client, "/apis/networking.k8s.io/v1/namespaces/"+nsPath+"/networkpolicies", nil)
 	if err != nil && !isNotFoundOrForbidden(err) {

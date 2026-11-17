@@ -91,7 +91,7 @@ func (s *Server) probeTemplate() (string, bool) {
 
 // buildProbeDS turns the template into this test's DaemonSet: its own name, the
 // namespace, and labels that tie its pods to this test only.
-func buildProbeDS(tmpl, ns, run string) ([]byte, string, error) {
+func buildProbeDS(tmpl, ns, run string, nodes ...string) ([]byte, string, error) {
 	_, m, err := fromYAML(tmpl)
 	if err != nil {
 		return nil, "", err
@@ -130,6 +130,15 @@ func buildProbeDS(tmpl, ns, run string) ([]byte, string, error) {
 	ps := obj(tpl, "spec")
 	if cs, _ := ps["containers"].([]any); len(cs) == 0 {
 		return nil, "", errors.New("the probe template has no containers")
+	}
+	if len(nodes) > 0 { // only on these nodes (re-run of failed checks)
+		vals := make([]any, len(nodes))
+		for i, n := range nodes {
+			vals[i] = n
+		}
+		obj(obj(ps, "affinity"), "nodeAffinity")["requiredDuringSchedulingIgnoredDuringExecution"] = map[string]any{
+			"nodeSelectorTerms": []any{map[string]any{"matchFields": []any{map[string]any{"key": "metadata.name", "operator": "In", "values": vals}}}},
+		}
 	}
 	b, err := json.Marshal(m)
 	return b, name, err
@@ -216,7 +225,7 @@ func (j *ConnJob) runWithProbeDS(ctx context.Context, c *Cluster, snap *Snapshot
 		j.mu.Unlock()
 	}
 	run := newJobID()[:6]
-	body, name, err := buildProbeDS(tmpl, j.NS, run)
+	body, name, err := buildProbeDS(tmpl, j.NS, run, j.Nodes...)
 	if err != nil {
 		fail(err.Error())
 		return
@@ -236,11 +245,7 @@ func (j *ConnJob) runWithProbeDS(ctx context.Context, c *Cluster, snap *Snapshot
 			j.mu.Lock()
 			j.Warnings = append(j.Warnings, fmt.Sprintf("The probe DaemonSet %s could not be removed (%s); the next test in this namespace removes it.", name, friendlyErr(err)))
 			j.mu.Unlock()
-			return
 		}
-		j.mu.Lock()
-		j.Warnings = append(j.Warnings, fmt.Sprintf("Tested from DaemonSet %s (one pod per node), removed after the test.", name))
-		j.mu.Unlock()
 	}()
 
 	// wait until every scheduled probe pod runs (or the time is up: test from those that do)
@@ -259,7 +264,7 @@ func (j *ConnJob) runWithProbeDS(ctx context.Context, c *Cluster, snap *Snapshot
 		reasons = map[string]string{}
 		for i := range pods {
 			p := &pods[i]
-			if p.Metadata.Labels[probeRunLabel] != run {
+			if p.Metadata.Labels[probeRunLabel] != run || (len(j.Nodes) > 0 && !contains(j.Nodes, p.Spec.NodeName)) {
 				continue
 			}
 			if p.Status.Phase == "Running" && len(runningContainers(p)) > 0 && podReadyCount(p) == len(p.Spec.Containers) {

@@ -551,9 +551,11 @@ type ConnJob struct {
 	NS       string
 	Started  time.Time
 	Finished time.Time
-	State    string // preparing | running | done | cancelled | failed
-	Prep     string // what "preparing" is doing (probe DaemonSet)
-	Err      string // why it failed
+	State    string   // preparing | running | done | cancelled | failed
+	Mode     string   // podMode of the request
+	Nodes    []string // daemonset: limited to these nodes
+	Prep     string   // what "preparing" is doing (probe DaemonSet)
+	Err      string   // why it failed
 	Total    int
 	Done     int
 	Sources  []ConnSource
@@ -618,6 +620,7 @@ type connRequest struct {
 	NS          string   `json:"ns"`
 	PodMode     string   `json:"podMode"` // daemonset | per-node | all | pick
 	Pods        []string `json:"pods"`
+	Nodes       []string `json:"nodes"` // daemonset: only these nodes (re-run of failed checks)
 	Targets     string   `json:"targets"`
 	Ports       string   `json:"ports"`
 	Timeout     int      `json:"timeout"`
@@ -907,9 +910,6 @@ func (j *ConnJob) run(ctx context.Context, c *Cluster, snap *Snapshot) {
 				j.Policy[si] = cells
 			}
 		}
-		if !env.Found && !env.NPDenied {
-			j.Warnings = append(j.Warnings, "No NetworkPolicy or Cilium policy objects were found for this namespace, so policies are not what blocks traffic here.")
-		}
 		hn := 0
 		for _, p := range j.pods {
 			if p.Spec.HostNetwork {
@@ -952,7 +952,7 @@ func (j *ConnJob) snapshot(from int, full bool) map[string]any {
 		from = 0
 	}
 	out := map[string]any{
-		"id": j.ID, "ns": j.NS, "state": j.State, "total": j.Total, "done": j.Done,
+		"id": j.ID, "ns": j.NS, "state": j.State, "podMode": j.Mode, "total": j.Total, "done": j.Done,
 		"sources": append(make([]ConnSource, 0, len(j.Sources)), j.Sources...), "results": append(make([]ConnResult, 0, len(j.Results)-from), j.Results[from:]...),
 		"next": len(j.Results), "started": j.Started, "policyCheck": j.PolicyOn, "timeout": j.Timeout,
 	}
@@ -1054,9 +1054,20 @@ func (s *Server) connRoutes(mux *http.ServeMux) {
 				writeErr(w, 400, fmt.Errorf("%d checks is too many for a test from every node: narrow the targets", len(checks)))
 				return
 			}
+			if len(req.Nodes) > 1000 {
+				writeErr(w, 400, errors.New("too many nodes"))
+				return
+			}
+			for _, n := range req.Nodes {
+				if !hostRe.MatchString(n) {
+					writeErr(w, 400, fmt.Errorf("%q is not a node name", n))
+					return
+				}
+			}
 			tmpl, _ := s.probeTemplate()
 			j := &ConnJob{ID: newJobID(), owner: reqUserID(r), Ctx: r.URL.Query().Get("ctx"), NS: req.NS, Started: time.Now(), State: "preparing",
 				Checks: checks, PolicyOn: req.PolicyCheck, Timeout: req.Timeout, Parallel: req.Parallel, Sources: []ConnSource{}, Prep: "Creating the probe DaemonSet…",
+				Mode: "daemonset", Nodes: req.Nodes,
 				extIP: s.nodeExternalIPs(r.Context(), c, snap)}
 			ctx, cancel := context.WithCancel(context.Background())
 			j.cancel = cancel
@@ -1084,7 +1095,7 @@ func (s *Server) connRoutes(mux *http.ServeMux) {
 			return
 		}
 		j := &ConnJob{ID: newJobID(), owner: reqUserID(r), Ctx: r.URL.Query().Get("ctx"), NS: req.NS, Started: time.Now(), State: "preparing",
-			Checks: checks, Total: len(src) * len(checks), PolicyOn: req.PolicyCheck, Timeout: req.Timeout, Parallel: req.Parallel, pods: src,
+			Checks: checks, Total: len(src) * len(checks), PolicyOn: req.PolicyCheck, Timeout: req.Timeout, Parallel: req.Parallel, pods: src, Mode: req.PodMode,
 			extIP: s.nodeExternalIPs(r.Context(), c, snap)}
 		for _, p := range src {
 			j.Sources = append(j.Sources, j.source(p))

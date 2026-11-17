@@ -65,3 +65,47 @@ func TestBuildProbeDS(t *testing.T) {
 		t.Error("a changed image must be accepted")
 	}
 }
+
+func TestBuildProbeDSOnlyNodes(t *testing.T) {
+	b, _, err := buildProbeDS(defaultProbeDS, "payments", "a1b2c3", "worker-1", "worker-4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ds struct {
+		Spec struct {
+			Template struct {
+				Spec struct {
+					Affinity struct {
+						NodeAffinity struct {
+							Req struct {
+								Terms []struct {
+									MatchFields []struct {
+										Key, Operator string
+										Values        []string
+									} `json:"matchFields"`
+								} `json:"nodeSelectorTerms"`
+							} `json:"requiredDuringSchedulingIgnoredDuringExecution"`
+						} `json:"nodeAffinity"`
+					} `json:"affinity"`
+					Tolerations []any `json:"tolerations"`
+				}
+			}
+		}
+	}
+	if err := json.Unmarshal(b, &ds); err != nil {
+		t.Fatal(err)
+	}
+	ts := ds.Spec.Template.Spec.Affinity.NodeAffinity.Req.Terms
+	if len(ts) != 1 || len(ts[0].MatchFields) != 1 || ts[0].MatchFields[0].Key != "metadata.name" || ts[0].MatchFields[0].Operator != "In" ||
+		strings.Join(ts[0].MatchFields[0].Values, ",") != "worker-1,worker-4" {
+		t.Errorf("affinity: %+v", ts)
+	}
+	if len(ds.Spec.Template.Spec.Tolerations) == 0 {
+		t.Error("tolerations must be kept")
+	}
+	// no nodes: no affinity
+	b, _, _ = buildProbeDS(defaultProbeDS, "payments", "a1b2c3")
+	if strings.Contains(string(b), "nodeAffinity") {
+		t.Error("affinity set without nodes")
+	}
+}
