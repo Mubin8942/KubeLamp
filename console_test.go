@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -126,5 +127,57 @@ func TestRedactArgs(t *testing.T) {
 	s := redactArgs([]string{"create", "secret", "generic", "x", "--from-literal=password=hunter2", "--token=abc"})
 	if strings.Contains(s, "hunter2") || strings.Contains(s, "abc") {
 		t.Error(s)
+	}
+}
+
+func TestConsoleAliases(t *testing.T) {
+	own := map[string]string{"kgp": "kubectl get pods -o wide", "mine": "k get deploy"}
+	for in, want := range map[string]string{
+		"kgp":                "kubectl get pods -o wide", // the user's own wins over the built-in
+		"kgd -n web":         "kubectl get deployments -n web",
+		"kgpa | grep api":    "kubectl get pods -A | grep api",
+		"  mine":             "k get deploy",
+		"kubectl get pods":   "kubectl get pods",
+		"get pods":           "get pods",
+		"kgpx":               "kgpx",
+		"kl -f web --tail 5": "kubectl logs -f web --tail 5",
+	} {
+		if got, _ := expandAlias(in, own); got != want {
+			t.Errorf("expandAlias(%q) = %q, want %q", in, got, want)
+		}
+	}
+	// definitions
+	if n, v, err := parseAliasDef(`kgw='kubectl get pods -w'`); err != nil || n != "kgw" || v != "kubectl get pods -w" {
+		t.Errorf("def: %q %q %v", n, v, err)
+	}
+	if _, v, err := parseAliasDef(`kgw="get pods -l app=x"`); err != nil || v != "get pods -l app=x" {
+		t.Errorf("double quotes: %q %v", v, err)
+	}
+	for _, bad := range []string{`x='cat /etc/passwd'`, `x='sh -c id'`, `kubectl='get pods'`, `get='get pods'`, `1x='get pods'`,
+		`x=`, `kgp kubectl get pods`, `x='get pods' y='get nodes'`, `../x='get pods'`} {
+		if _, _, err := parseAliasDef(bad); err == nil {
+			t.Errorf("accepted: alias %s", bad)
+		}
+	}
+	// an alias can't get round the checks: the expanded line is checked like a typed one
+	line, _ := expandAlias("steal", map[string]string{"steal": "kubectl get pods --kubeconfig=/data/users.json"})
+	args, _, _, err := parseConsole(line)
+	if err == nil {
+		err = checkKubectlArgs(args, false)
+	}
+	if err == nil {
+		t.Error("an alias bypassed the checks")
+	}
+	// saved per user, mode 600
+	dir := t.TempDir()
+	if err := saveConsoleSettings(dir, consoleSettings{Aliases: map[string]string{"kgw": "kubectl get pods -w"}}); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := os.Stat(consoleSettingsPath(dir))
+	if st.Mode().Perm() != 0o600 || loadConsoleSettings(dir).Aliases["kgw"] != "kubectl get pods -w" {
+		t.Errorf("saved: %v %v", st.Mode(), loadConsoleSettings(dir))
+	}
+	if loadConsoleSettings(t.TempDir()).Aliases == nil {
+		t.Error("empty settings must give an empty map")
 	}
 }

@@ -362,6 +362,7 @@ type console struct {
 	pending  string // keys typed while a command was starting
 	userName string
 	home     string
+	aliases  map[string]string // this user's own; built-in ones in builtinAliases
 }
 
 func (s *Server) handleConsole(w http.ResponseWriter, r *http.Request) {
@@ -394,7 +395,7 @@ func (s *Server) handleConsole(w http.ResponseWriter, r *http.Request) {
 		home = filepath.Join(s.dataDir, "console", safeDirName(uid))
 		_ = os.MkdirAll(home, 0o700)
 	}
-	c := &console{s: s, r: r, ws: conn, cols: 120, rows: 30, userName: uname, home: home}
+	c := &console{s: s, r: r, ws: conn, cols: 120, rows: 30, userName: uname, home: home, aliases: loadConsoleSettings(s.userDir(r)).Aliases}
 	q := r.URL.Query()
 	c.setCtx(q.Get("ctx"), q.Get("ns"), false)
 	if _, err := exec.LookPath("kubectl"); err != nil {
@@ -694,6 +695,8 @@ const consoleHelp = "\x1b[1mkubectl console\x1b[0m — runs kubectl with your ku
 	"  get pods -A | grep api  \x1b[2mone | grep [-i] [-v] pattern may follow\x1b[0m\r\n" +
 	"  logs -f deploy/web      exec -it pod/web -- sh      describe node x\r\n" +
 	"  ↑ ↓ history · Tab completes · Ctrl+C stops a command · Ctrl+L clears\r\n" +
+	"  alias            list aliases (kgp = kubectl get pods, kl = kubectl logs …)\r\n" +
+	"  alias kgw='kubectl get pods -w'   your own, saved for next time · unalias kgw\r\n" +
 	"\x1b[2mNot available: local files (-f, --from-file), cp, edit, proxy, port-forward, --kubeconfig/--context/--server.\r\n" +
 	"This is not a shell: ; && $() and redirection are passed to kubectl as plain words.\x1b[0m\r\n"
 
@@ -710,7 +713,15 @@ func (c *console) exec(line string) {
 		}
 	}
 	c.hi = len(c.hist)
-	args, grep, builtin, err := parseConsole(line)
+	if out, ok := c.aliasCommand(line); ok {
+		c.out(out)
+		c.prompt()
+		return
+	}
+	c.mu.Lock()
+	expanded, _ := expandAlias(line, c.aliases)
+	c.mu.Unlock()
+	args, grep, builtin, err := parseConsole(expanded)
 	if err == nil && builtin == "" {
 		err = checkKubectlArgs(args, c.s.readOnly)
 	}

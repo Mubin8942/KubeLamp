@@ -53,7 +53,8 @@ Lists show the same columns as `kubectl get`, including CRD printer columns. A *
 
 **kubectl console (every user):** *Terminal* opens a console that runs `kubectl` with **your own kubeconfig**. *Cluster* and *Namespace* menus above it switch the target at any time, and the prompt shows `cluster:namespace`.
 - **Commands:** type `kubectl get pods`, `k get pods` or just `get pods`. One `| grep [-i] [-v] pattern` may follow.
-- **Interactive:** `exec -it`, `logs -f` and `get -w` work, and Ctrl+C stops them. ↑/↓ recall history, and Tab completes subcommands and resource types.
+- **Interactive:** `exec -it`, `logs -f` and `get -w` work, and Ctrl+C stops them.
+- **Aliases:** `k` = kubectl, plus built-ins like `kgp` (get pods), `kgpa` (get pods -A), `kgd`, `kgs`, `kgn`, `kd`, `kdp`, `kl`, `klf` (logs -f), `kex` (exec -it), `krr` (rollout restart). Type `alias` to list them. Add your own with `alias kgw='kubectl get pods -o wide -w'` and remove one with `unalias kgw`. Your aliases are saved in your user folder, and the expanded command is checked like a typed one. ↑/↓ recall history, and Tab completes subcommands and resource types.
 - **It isn't a shell:** KubeLamp reads the line itself and starts `kubectl` directly, so `;`, `&&`, `$()` and redirection are just words. Each user gets a private HOME for kubectl's cache.
 - **Blocked, because they would reach files or the network of the KubeLamp server, where other users' kubeconfigs live:** local files (`-f path`, `-k`, `--from-file`, `--patch-file`, template files), `cp`, `edit`, `proxy`, `port-forward`, `plugin`, and switching credentials or servers (`--kubeconfig`, `--context`, `--server`, `--token`). `apply -f -` with pasted YAML works.
 - **Read-only mode:** only reading commands run (get, describe, logs, top, events, …).
