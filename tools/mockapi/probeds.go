@@ -69,6 +69,11 @@ func (c *cluster) probeDaemonSets(w http.ResponseWriter, r *http.Request, rt rou
 			json.Unmarshal(b, &sp)
 			for _, t := range sp.Template.Spec.Affinity.NodeAffinity.Req.Terms {
 				for _, f := range t.MatchFields {
+					if len(f.Values) != 1 {
+						w.WriteHeader(422)
+						writeJSON(w, obj{"kind": "Status", "code": 422, "message": "matchFields[0].values: Required value: must be only one value when `operator` is 'In' or 'NotIn' for node field selector"})
+						return true
+					}
 					for _, v := range f.Values {
 						only[v] = true
 					}

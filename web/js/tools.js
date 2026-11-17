@@ -375,10 +375,10 @@ async function viewConnTest(route) {
     unreachable: 'Unreachable (no route)', dns: 'DNS: name not found', error: 'Error', notool: 'No test tool in pod', noshell: 'No shell in pod', pending: 'Not run' };
   const POLICY_TEXT = { allowed: 'Allowed', blocked: 'Blocked', unknown: 'Unknown', none: 'No policy' };
   function downloadCsv() {
-    const rows = [['Target', 'Result', 'Node', 'Node IP', 'Time (ms)', 'HTTP status', 'Details', 'Resolved IPs', 'Connected IP', 'Network policy', 'Policy details']];
+    const rows = [['Target', 'Result', 'Node', 'Node IP', 'Time (ms)', 'Details', 'Resolved IPs', 'Connected IP', 'Network policy', 'Policy details']];
     T.sources.forEach((s, si) => T.checks.forEach((c, ci) => {
       const r = T.res.get(rkey(si, ci)) || {}, p = pv(si, ci) || {};
-      rows.push([c.label, RESULT_TEXT[r.state || 'pending'] || r.state, s.node, s.nodeIP || s.hostIP, r.ms ?? '', r.http || '',
+      rows.push([c.label, RESULT_TEXT[r.state || 'pending'] || r.state, s.node, s.nodeIP || s.hostIP, r.ms ?? '',
         r.detail || '', Array.isArray(r.ips) ? r.ips.join(' ') : '', r.via || '', POLICY_TEXT[p.s] || p.s || '', p.w || '']);
     }));
     const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-');

@@ -132,13 +132,12 @@ func buildProbeDS(tmpl, ns, run string, nodes ...string) ([]byte, string, error)
 		return nil, "", errors.New("the probe template has no containers")
 	}
 	if len(nodes) > 0 { // only on these nodes (re-run of failed checks)
-		vals := make([]any, len(nodes))
+		// a node field selector takes one value, so one term per node (terms are ORed)
+		terms := make([]any, len(nodes))
 		for i, n := range nodes {
-			vals[i] = n
+			terms[i] = map[string]any{"matchFields": []any{map[string]any{"key": "metadata.name", "operator": "In", "values": []any{n}}}}
 		}
-		obj(obj(ps, "affinity"), "nodeAffinity")["requiredDuringSchedulingIgnoredDuringExecution"] = map[string]any{
-			"nodeSelectorTerms": []any{map[string]any{"matchFields": []any{map[string]any{"key": "metadata.name", "operator": "In", "values": vals}}}},
-		}
+		obj(obj(ps, "affinity"), "nodeAffinity")["requiredDuringSchedulingIgnoredDuringExecution"] = map[string]any{"nodeSelectorTerms": terms}
 	}
 	b, err := json.Marshal(m)
 	return b, name, err

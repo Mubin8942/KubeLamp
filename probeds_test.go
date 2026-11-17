@@ -96,8 +96,14 @@ func TestBuildProbeDSOnlyNodes(t *testing.T) {
 		t.Fatal(err)
 	}
 	ts := ds.Spec.Template.Spec.Affinity.NodeAffinity.Req.Terms
-	if len(ts) != 1 || len(ts[0].MatchFields) != 1 || ts[0].MatchFields[0].Key != "metadata.name" || ts[0].MatchFields[0].Operator != "In" ||
-		strings.Join(ts[0].MatchFields[0].Values, ",") != "worker-1,worker-4" {
+	var got []string
+	for _, tm := range ts { // the API server takes exactly one value per node field selector
+		if len(tm.MatchFields) != 1 || tm.MatchFields[0].Key != "metadata.name" || tm.MatchFields[0].Operator != "In" || len(tm.MatchFields[0].Values) != 1 {
+			t.Fatalf("affinity term: %+v", tm)
+		}
+		got = append(got, tm.MatchFields[0].Values[0])
+	}
+	if strings.Join(got, ",") != "worker-1,worker-4" {
 		t.Errorf("affinity: %+v", ts)
 	}
 	if len(ds.Spec.Template.Spec.Tolerations) == 0 {
