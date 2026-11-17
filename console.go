@@ -401,7 +401,7 @@ func (s *Server) handleConsole(w http.ResponseWriter, r *http.Request) {
 	if _, err := exec.LookPath("kubectl"); err != nil {
 		c.out("\x1b[31mkubectl isn't installed on the KubeLamp server.\x1b[0m\r\n")
 	}
-	c.out("\x1b[2mkubectl console · runs kubectl with your kubeconfig · type help\x1b[0m\r\n")
+	c.out("\x1b[2mkubectl console · runs kubectl with your kubeconfig · type \x1b[0m\x1b[1mhelp\x1b[0m\x1b[2m for commands and aliases (kgp = get pods …)\x1b[0m\r\n")
 	c.prompt()
 	defer c.stop()
 	for {
@@ -690,15 +690,103 @@ func (c *console) key(seq string) {
 	}
 }
 
-const consoleHelp = "\x1b[1mkubectl console\x1b[0m — runs kubectl with your kubeconfig on the cluster and namespace chosen above.\r\n" +
-	"  kubectl get pods        \x1b[2m(or k get pods, or just get pods)\x1b[0m\r\n" +
-	"  get pods -A | grep api  \x1b[2mone | grep [-i] [-v] pattern may follow\x1b[0m\r\n" +
-	"  logs -f deploy/web      exec -it pod/web -- sh      describe node x\r\n" +
-	"  ↑ ↓ history · Tab completes · Ctrl+C stops a command · Ctrl+L clears\r\n" +
-	"  alias            list aliases (kgp = kubectl get pods, kl = kubectl logs …)\r\n" +
-	"  alias kgw='kubectl get pods -w'   your own, saved for next time · unalias kgw\r\n" +
-	"\x1b[2mNot available: local files (-f, --from-file), cp, edit, proxy, port-forward, --kubeconfig/--context/--server.\r\n" +
-	"This is not a shell: ; && $() and redirection are passed to kubectl as plain words.\x1b[0m\r\n"
+// helpText is what `help` prints: how to use the console, every alias, what's blocked.
+// The alias list uses as many columns as the terminal is wide.
+func (c *console) helpText() string {
+	c.mu.Lock()
+	cols := c.cols
+	own := map[string]string{}
+	for k, v := range c.aliases {
+		own[k] = v
+	}
+	c.mu.Unlock()
+	var b strings.Builder
+	h := func(t string) { b.WriteString("\r\n\x1b[1;38;5;75m" + t + "\x1b[0m\r\n") }
+	ex := func(cmd, note string) { fmt.Fprintf(&b, "  \x1b[33m%-34s\x1b[0m \x1b[2m%s\x1b[0m\r\n", cmd, note) }
+	b.WriteString("\x1b[1mkubectl console\x1b[0m — runs kubectl with \x1b[1myour\x1b[0m kubeconfig on the cluster and namespace picked above.\r\n")
+
+	h("Commands")
+	ex("kubectl get pods", "the full command")
+	ex("k get pods", "k is short for kubectl")
+	ex("get pods", "kubectl can be left out")
+	ex("get pods -n other  /  get pods -A", "-n or -A on the line beat the menu above")
+	ex("get pods -A | grep -i api", "one | grep [-i] [-v] pattern may follow")
+	ex("logs -f deploy/web --tail 50", "follow logs; Ctrl+C stops")
+	ex("exec -it pod/web -- sh", "a shell inside a pod")
+	ex("apply -f -", "then paste YAML and press Ctrl+D")
+
+	h("Built-in aliases")
+	names := sortedKeys(builtinAliases)
+	cell := 0
+	for _, n := range names {
+		if l := len(n) + 2 + len(strings.TrimPrefix(builtinAliases[n], "kubectl ")); l > cell {
+			cell = l
+		}
+	}
+	cell += 3
+	per := (cols - 2) / cell
+	if per < 1 {
+		per = 1
+	}
+	if per > 3 {
+		per = 3
+	}
+	rows := (len(names) + per - 1) / per
+	for r := 0; r < rows; r++ {
+		b.WriteString("  ")
+		for k := 0; k < per; k++ {
+			i := k*rows + r // read down the columns
+			if i >= len(names) {
+				continue
+			}
+			n := names[i]
+			v := strings.TrimPrefix(builtinAliases[n], "kubectl ")
+			if _, mine := own[n]; mine {
+				v = own[n] + " *"
+			}
+			txt := fmt.Sprintf("\x1b[38;5;75m%s\x1b[0m  %s", n, v)
+			pad := cell - len(n) - 2 - len(v)
+			if pad < 1 || k == per-1 {
+				pad = 1
+			}
+			b.WriteString(txt + strings.Repeat(" ", pad))
+		}
+		b.WriteString("\r\n")
+	}
+	b.WriteString("  \x1b[2mextra words go after the alias:\x1b[0m \x1b[33mkgp -n payments\x1b[0m\x1b[2m,\x1b[0m \x1b[33mklf deploy/web --tail 20\x1b[0m\r\n")
+
+	h("Your own aliases")
+	ex("alias kgw='kubectl get pods -o wide -w'", "add (or redefine a built-in); saved for next time")
+	ex("alias", "list yours and the built-in ones")
+	ex("unalias kgw", "remove")
+	if len(own) > 0 {
+		fmt.Fprintf(&b, "  \x1b[2myou have %d:\x1b[0m ", len(own))
+		for i, n := range sortedKeys(own) {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			if i == 8 {
+				fmt.Fprintf(&b, "… (+%d, type alias)", len(own)-8)
+				break
+			}
+			b.WriteString("\x1b[38;5;75m" + n + "\x1b[0m")
+		}
+		b.WriteString("\r\n")
+	}
+
+	h("Keys")
+	b.WriteString("  ↑ ↓ history     Tab complete       Ctrl+C stop a command / cancel the line\r\n")
+	b.WriteString("  Ctrl+L clear    Ctrl+U clear line  Ctrl+A / Ctrl+E start / end of line\r\n")
+
+	h("Not available here")
+	b.WriteString("\x1b[2m  local files (-f path, -k, --from-file, --patch-file), cp, edit, proxy, port-forward, plugin,\r\n" +
+		"  --kubeconfig / --context / --server / --token (pick the cluster in the menu above).\r\n" +
+		"  This is not a shell: ; && $() and > are passed to kubectl as plain words.\x1b[0m\r\n")
+	if c.s.readOnly {
+		b.WriteString("\x1b[33m  KubeLamp is read-only: only get, describe, logs, top, events … run.\x1b[0m\r\n")
+	}
+	return b.String()
+}
 
 // exec runs one command line.
 func (c *console) exec(line string) {
@@ -731,7 +819,7 @@ func (c *console) exec(line string) {
 		c.prompt()
 		return
 	case builtin == "help":
-		c.out(consoleHelp)
+		c.out(c.helpText())
 		c.prompt()
 		return
 	case builtin == "clear":
