@@ -132,7 +132,7 @@ function renderNav(route) {
   }
   if (!route.ctx) {
     nav.innerHTML = `<a class="nav-a ${route.page ? '' : 'on'}" href="#/">All clusters</a><div class="nav-h" style="cursor:default">Clusters</div>` +
-      (S.clusters.map(c => `<a class="nav-a" href="${ctxPath(c.name)}/overview" title="${esc(c.name)}"><i class="dot ${c.status}"></i><span class="n">${esc(shortName(c.name))}</span>${c.scope === 'namespaced' ? '<span class="tag" title="Role/RoleBinding access">ns</span>' : ''}</a>`).join('')
+      (S.clusters.map(c => `<a class="nav-a" href="${ctxPath(c.name)}/overview" title="${esc(c.name)}"><i class="dot ${c.status}"></i><span class="n">${esc(shortName(c.name))}</span></a>`).join('')
         || '<div class="muted" style="padding:6px 10px">No contexts loaded</div>');
     rail.innerHTML = `<a class="rail-b ${route.page ? '' : 'on'}" href="#/" title="All clusters">${railIcon('All clusters')}</a><div class="rail-sep"></div>` +
       S.clusters.map(c => `<a class="rail-b" href="${ctxPath(c.name)}/overview" title="${esc(shortName(c.name))}"><b style="font-size:12px;font-weight:600">${esc(shortName(c.name).replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase())}</b><i class="dot ${c.status}"></i></a>`).join('');
@@ -232,7 +232,9 @@ function renderTop(route) {
   $('#ctxName').textContent = route.ctx ? shortName(route.ctx) : 'All clusters';
   $('#ctxDot').className = 'dot ' + (c ? c.status : route.ctx ? 'loading' : '');
   $('#ctxDot').hidden = !route.ctx;
-  $('#nsPicker').hidden = !route.ctx;
+  const own = route.section === 'nodes'; // the Nodes page has its own cluster menu; namespaces don't apply
+  $('#ctxPicker').hidden = !route.ctx || own;
+  $('#nsPicker').hidden = !route.ctx || own;
   $('#nsName').textContent = S.ns || (c && c.scope === 'namespaced' ? 'My namespaces' : 'All namespaces');
 }
 $('#ctxPicker').addEventListener('click', () => {

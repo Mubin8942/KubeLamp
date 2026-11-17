@@ -131,7 +131,7 @@ async function viewHome() {
         ${attnBlock(c)}${certLine(c)}`;
       return `<div class="card ccard" data-ctx="${esc(c.name)}">
         <div class="top"><i class="dot ${c.status}" style="margin-top:5px"></i><div style="min-width:0;flex:1"><div class="nm">${esc(shortName(c.name))}</div>${sub}</div>
-        <div style="display:flex;gap:4px;flex-direction:column;align-items:flex-end">${c.version ? `<span class="tag">${esc(c.version)}</span>` : ''}${c.current ? '<span class="tag cur">current</span>' : ''}${isNs(c) ? '<span class="tag" title="Role/RoleBinding access">namespace-scoped</span>' : ''}</div></div>
+        <div style="display:flex;gap:4px;flex-direction:column;align-items:flex-end">${c.version ? `<span class="tag">${esc(c.version)}</span>` : ''}${c.current ? '<span class="tag cur">current</span>' : ''}</div></div>
         ${body}</div>`;
     }).join('');
     $('#cards').innerHTML = cards || `<div class="empty-state"><h2>No clusters yet</h2><p>The loaded kubeconfig has no contexts.</p><button class="btn primary" type="button" onclick="openKubeconfigs()">Add a kubeconfig</button></div>`;
@@ -164,8 +164,6 @@ function clusterHead(sum, title, crumbs = '') {
     ${c.version ? `<span>${esc(c.version)}</span>` : ''}<span class="mono">${esc(c.server)}</span><span>${esc(c.authType)}</span>
     <span class="muted" id="updated">updated ${c.at ? age(c.at) + ' ago' : '—'}</span></div></div>
     <div class="right"><button class="btn" id="accessBtn" title="Cluster-wide or namespace-scoped (Role/RoleBinding) access"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>${esc(isNs(c) ? 'Namespaces: ' + (c.scopeNamespaces || []).length : 'Access')}</button><button class="btn" id="refreshBtn"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>Refresh</button></div></div>
-    ${isNs(c) ? `<div class="banner info ns-banner"><b>Namespace-scoped</b><span><b>${(c.scopeNamespaces || []).length} namespace${(c.scopeNamespaces || []).length === 1 ? '' : 's'}</b>${c.scopeFoundBy ? ` ${FOUND_BY[c.scopeFoundBy] || 'found automatically'}` : ''}: ${nsListHtml(c.scopeNamespaces || [], 4)}
-      <span class="muted ns-note">${c.nodesTotal ? 'Nodes are shown because your user may list them; node requests count only your pods' : 'Nodes and cluster capacity need cluster-wide rights'}${c.cpu.quota || c.mem.quota ? '; ResourceQuota is used as the capacity line' : ''}. <a href="#" data-acc>Manage</a></span></span></div>` : ''}
     ${certBanner(c)}
     ${c.status === 'partial' ? `<div class="banner"><b>Some data is missing.</b><span>${esc(c.error)}</span></div>` : ''}
     ${!c.metricsAvailable ? (/forbidden|RBAC/i.test(c.metricsErr || '')
@@ -272,7 +270,6 @@ async function viewPodNodes(route, sum, all) {
     ? `<div class="page-head"><div><div class="crumbs"><a href="#/">All clusters</a></div><h1>Nodes</h1><div class="sub"><span>${ctxs.length} clusters · nodes where your pods run</span></div></div></div>`
     : clusterHead(sum, 'Nodes', `<div class="crumbs"><a href="${ctxPath(ctx)}/overview">${esc(shortName(ctx))}</a></div>`);
   main.innerHTML = head + `
-    <div class="banner info"><b>From your pods</b><span>${all ? 'Nodes in every cluster' : 'Your user can\'t list nodes here, so these are the nodes'} your pods run on, with their IPs — the same as <code>kubectl get pods -o wide</code>. Only nodes running at least one of your pods appear.</span></div>
     <div class="filters">${nodesClusterSelect(ctx, all)}<input type="search" id="nq" placeholder="Filter by node, IP, namespace or pod" style="width:300px"><span class="count" id="ncount"></span>
       <button class="btn" id="ndl">${DL_ICON}Download</button></div>
     <div class="card" id="nodesBox"><div class="muted">Loading…</div></div>`;
@@ -284,7 +281,7 @@ async function viewPodNodes(route, sum, all) {
     rows = []; errs = [];
     got.forEach((g, i) => {
       if (g.status === 'rejected') { if (g.reason?.name !== 'AbortError') errs.push(`${shortName(ctxs[i])}: ${g.reason?.message}`); return; }
-      g.value.d.nodes.forEach(n => rows.push({ ...n, cluster: g.value.c }));
+      g.value.d.nodes.forEach(n => rows.push({ ...n, cluster: g.value.c, ipSource: g.value.d.ipSource }));
     });
     draw();
   };
@@ -298,20 +295,22 @@ async function viewPodNodes(route, sum, all) {
     if (all) cols.push({ key: 'cluster', label: 'Cluster', render: n => `<a href="${ctxPath(n.cluster)}/nodes">${esc(shortName(n.cluster))}</a>` });
     cols.push(
       { key: 'name', label: 'Node (host name)', cls: 'name', render: n => esc(n.name) },
-      { key: 'ip', label: 'IP', render: n => n.ip ? `<span class="mono">${esc(n.ip)}</span>` : '<span class="muted">—</span>', sort: n => n.ip.split('.').map(x => x.padStart(3, '0')).join('.') },
+      { key: 'ip', label: 'IP', render: n => n.ip ? `<span class="mono">${esc(n.ip)}</span>${n.externalIP && n.internalIP && n.internalIP !== n.ip ? `<span class="sub mono" title="InternalIP registered with Kubernetes">${esc(n.internalIP)}</span>` : ''}` : '<span class="muted">—</span>',
+        sort: n => (n.ip || '').split('.').map(x => x.padStart(3, '0')).join('.') },
       { key: 'pods', label: 'Your pods', num: true, render: n => `<a href="${ctxPath(n.cluster)}/pods?q=${enc(n.name)}" title="Show these pods">${n.running}${n.running !== n.pods ? `<span class="muted"> / ${n.pods}</span>` : ''}</a>` },
       { key: 'namespaces', label: 'Namespaces', nosort: true, render: n => `<span class="chips">${n.namespaces.slice(0, 4).map(x => `<span class="chip">${esc(x)}</span>`).join('')}${n.namespaces.length > 4 ? `<span class="muted">+${n.namespaces.length - 4}</span>` : ''}</span>` },
     );
     const t = table('podnodes', cols, list, { sort: { key: all ? 'cluster' : 'name', dir: 'asc' } });
     $('#nodesBox').innerHTML = (errs.length ? `<div class="banner err" style="margin:0 0 10px"><b>Not loaded.</b><span>${esc(errs.join('; '))}</span></div>` : '')
-      + (rows.length ? t.html : `<div class="muted" style="padding:6px">None of your pods is on a node yet.</div>`);
+      + (rows.length ? t.html : `<div class="muted" style="padding:6px">None of your pods is on a node yet.</div>`)
+      + (rows.some(n => n.ipSource === 'pods') ? `<div class="muted" style="font-size:12px;margin-top:10px">IPs are the addresses the nodes registered with Kubernetes. A node's other addresses need read access to nodes.</div>` : '');
     t.bind($('#nodesBox'), draw);
     $('#ncount').textContent = `${list.length} of ${rows.length} nodes`;
   };
   $('#nq').addEventListener('input', draw);
   $('#ndl').onclick = e => downloadMenu(e.currentTarget, all ? 'nodes-all-clusters' : `nodes-${shortName(ctx)}`, () => [
-    ['Cluster', 'Node', 'IP', 'Running pods', 'Pods', 'Namespaces'],
-    ...shown().map(n => [shortName(n.cluster), n.name, n.ip, n.running, n.pods, n.namespaces.join(' ')])]);
+    ['Cluster', 'Node', 'IP', 'Internal IP', 'External IP', 'Running pods', 'Pods', 'Namespaces'],
+    ...shown().map(n => [shortName(n.cluster), n.name, n.ip, n.internalIP, n.externalIP || '', n.running, n.pods, n.namespaces.join(' ')])]);
   await live(20000, render);
 }
 const DL_ICON = '<svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5"/><path d="M4 16v2.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V16"/></svg>';

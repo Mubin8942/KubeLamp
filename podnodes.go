@@ -1,18 +1,28 @@
 package main
 
 import (
+	"context"
 	"net/http"
+	"net/url"
 	"sort"
+	"strings"
+	"sync"
+	"time"
 )
 
 // Nodes seen through your pods: for users without rights to list nodes, the node
-// names and IPs come from the pods they can read (spec.nodeName, status.hostIP), the
-// same thing `kubectl get pods -o wide` shows. No extra API calls: the pods are already
-// in the snapshot.
+// names come from the pods they can read (spec.nodeName), like `kubectl get pods -o
+// wide`. A pod only knows its node's registered InternalIP (status.hostIP), which on
+// some clusters is an overlay address; the node's other addresses come, in order, from
+// the node objects (if the user may list them), Rancher's node list (Steve /v1/nodes,
+// then the management API /v3/nodes, which records the node's IP and external IP), and
+// otherwise the pods. Lookups that fail are not retried for 10 minutes.
 
 type PodNode struct {
 	Name       string   `json:"name"`
-	IP         string   `json:"ip"`
+	IP         string   `json:"ip"`         // the address to show: ExternalIP if known, else InternalIP
+	InternalIP string   `json:"internalIP"` // as registered with Kubernetes (status.hostIP of its pods)
+	ExternalIP string   `json:"externalIP,omitempty"`
 	Pods       int      `json:"pods"`
 	Running    int      `json:"running"`
 	Namespaces []string `json:"namespaces"`
@@ -22,14 +32,103 @@ type PodNode struct {
 type PodNodesResult struct {
 	Nodes      []PodNode `json:"nodes"`
 	NodeAccess bool      `json:"nodeAccess"` // the user may list nodes (the full Nodes view works)
+	IPSource   string    `json:"ipSource"`   // nodes | rancher | pods
 	Scope      string    `json:"scope"`
 	Unplaced   int       `json:"unplaced"` // pods not scheduled on a node yet
 }
 
-func podNodes(snap *Snapshot) PodNodesResult {
+type nodeAddr struct{ internal, external string }
+
+// node addresses from Rancher, cached per cluster
+var rancherAddrCache = struct {
+	sync.Mutex
+	m map[*Cluster]struct {
+		at    time.Time
+		addrs map[string]nodeAddr
+	}
+}{m: map[*Cluster]struct {
+	at    time.Time
+	addrs map[string]nodeAddr
+}{}}
+
+func rancherNodeAddrs(ctx context.Context, c *Cluster) map[string]nodeAddr {
+	if c == nil || c.client == nil || !strings.Contains(c.client.base.Path, "/k8s/clusters/") {
+		return nil
+	}
+	rancherAddrCache.Lock()
+	e, ok := rancherAddrCache.m[c]
+	rancherAddrCache.Unlock()
+	if ok && time.Since(e.at) < 10*time.Minute {
+		return e.addrs
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	addrs := map[string]nodeAddr{}
+	// 1. Steve: Kubernetes node objects through Rancher, if Rancher lets this user see them
+	var steve struct {
+		Data []Node `json:"data"`
+	}
+	if err := c.client.get(ctx, "/v1/nodes", nil, &steve); err == nil {
+		for _, n := range steve.Data {
+			addrs[n.Metadata.Name] = addrOf(n)
+		}
+	}
+	// 2. Rancher's management API: the IPs Rancher recorded for each node
+	if len(addrs) == 0 {
+		id := c.client.base.Path[strings.Index(c.client.base.Path, "/k8s/clusters/")+len("/k8s/clusters/"):]
+		id = strings.Trim(strings.SplitN(id, "/", 2)[0], "/")
+		var v3 struct {
+			Data []struct {
+				NodeName          string `json:"nodeName"`
+				Hostname          string `json:"hostname"`
+				IPAddress         string `json:"ipAddress"`
+				ExternalIPAddress string `json:"externalIpAddress"`
+			} `json:"data"`
+		}
+		if id != "" && c.client.get(ctx, rootPath("/v3/nodes"), url.Values{"clusterId": {id}, "limit": {"-1"}}, &v3) == nil {
+			for _, n := range v3.Data {
+				name := n.NodeName
+				if name == "" {
+					name = n.Hostname
+				}
+				a := nodeAddr{internal: n.IPAddress, external: n.ExternalIPAddress}
+				if a.external == a.internal {
+					a.external = ""
+				}
+				addrs[strings.ToLower(name)] = a
+			}
+		}
+	}
+	rancherAddrCache.Lock()
+	rancherAddrCache.m[c] = struct {
+		at    time.Time
+		addrs map[string]nodeAddr
+	}{time.Now(), addrs}
+	rancherAddrCache.Unlock()
+	return addrs
+}
+
+func addrOf(n Node) nodeAddr {
+	var a nodeAddr
+	for _, x := range n.Status.Addresses {
+		switch x.Type {
+		case "InternalIP":
+			if a.internal == "" {
+				a.internal = x.Address
+			}
+		case "ExternalIP":
+			if a.external == "" {
+				a.external = x.Address
+			}
+		}
+	}
+	return a
+}
+
+func podNodes(snap *Snapshot, rancher map[string]nodeAddr) PodNodesResult {
 	byName := map[string]*PodNode{}
 	nsSeen := map[string]map[string]bool{}
-	res := PodNodesResult{Nodes: []PodNode{}, NodeAccess: len(snap.Nodes) > 0, Scope: snap.Scope}
+	res := PodNodesResult{Nodes: []PodNode{}, NodeAccess: len(snap.Nodes) > 0, Scope: snap.Scope, IPSource: "pods"}
 	for i := range snap.Pods {
 		p := &snap.Pods[i]
 		n := p.Spec.NodeName
@@ -43,8 +142,8 @@ func podNodes(snap *Snapshot) PodNodesResult {
 			byName[n] = pn
 			nsSeen[n] = map[string]bool{}
 		}
-		if pn.IP == "" && p.Status.HostIP != "" {
-			pn.IP = p.Status.HostIP
+		if pn.InternalIP == "" && p.Status.HostIP != "" {
+			pn.InternalIP = p.Status.HostIP
 		}
 		pn.Pods++
 		if p.Status.Phase == "Running" {
@@ -58,17 +157,32 @@ func podNodes(snap *Snapshot) PodNodesResult {
 			pn.PodNames = append(pn.PodNames, p.Metadata.Namespace+"/"+p.Metadata.Name)
 		}
 	}
-	// with node rights the node's own InternalIP is better than a pod's hostIP
+	// better addresses: the node objects, else Rancher's list
+	known := map[string]nodeAddr{}
 	for _, nd := range snap.Nodes {
-		if pn := byName[nd.Metadata.Name]; pn != nil {
-			for _, a := range nd.Status.Addresses {
-				if a.Type == "InternalIP" {
-					pn.IP = a.Address
-				}
-			}
-		}
+		known[nd.Metadata.Name] = addrOf(nd)
 	}
-	for _, pn := range byName {
+	if len(known) > 0 {
+		res.IPSource = "nodes"
+	} else if len(rancher) > 0 {
+		res.IPSource = "rancher"
+		known = rancher
+	}
+	for name, pn := range byName {
+		a, ok := known[name]
+		if !ok {
+			a, ok = known[strings.ToLower(name)]
+		}
+		if ok {
+			if a.internal != "" {
+				pn.InternalIP = a.internal
+			}
+			pn.ExternalIP = a.external
+		}
+		pn.IP = pn.InternalIP
+		if pn.ExternalIP != "" {
+			pn.IP = pn.ExternalIP
+		}
 		sort.Strings(pn.Namespaces)
 		sort.Strings(pn.PodNames)
 		res.Nodes = append(res.Nodes, *pn)
@@ -79,10 +193,14 @@ func podNodes(snap *Snapshot) PodNodesResult {
 
 func (s *Server) podNodeRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/podnodes", func(w http.ResponseWriter, r *http.Request) {
-		_, snap, ok := s.cluster(w, r)
+		c, snap, ok := s.cluster(w, r)
 		if !ok {
 			return
 		}
-		writeJSON(w, 200, podNodes(snap))
+		var rancher map[string]nodeAddr
+		if len(snap.Nodes) == 0 {
+			rancher = rancherNodeAddrs(r.Context(), c)
+		}
+		writeJSON(w, 200, podNodes(snap, rancher))
 	})
 }

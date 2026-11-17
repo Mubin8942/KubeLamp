@@ -39,6 +39,7 @@ Lists show the same columns as `kubectl get`, including CRD printer columns. A *
 
 **Nodes without node rights:** if your user can't list nodes (namespace-scoped, e.g. Rancher project members), the Nodes page lists the nodes your pods run on, with their host IPs. That's what `kubectl get pods -o wide` shows, read from the pods KubeLamp already has.
 - **Each node** shows how many of your pods run there and in which namespaces. The pod count links to those pods.
+- **IP addresses:** a pod only knows the address its node registered with Kubernetes, and on some clusters that's an overlay address. KubeLamp looks for the node's other addresses in this order: the node objects (if you may list them), Rancher's node list, then Rancher's management API (`/v3/nodes`, which records each node's IP and external IP). When one of these is available, the real address is shown, with the registered one underneath. The download has *IP*, *Internal IP* and *External IP* columns.
 - **Cluster dropdown:** one cluster, or *All clusters* in one list.
 - **Download:** CSV or TXT, on this view and on the full Nodes view.
 

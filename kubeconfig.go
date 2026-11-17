@@ -451,12 +451,21 @@ func (c *Client) do(ctx context.Context, path string, q url.Values) (*http.Respo
 	return c.request(ctx, http.MethodGet, path, q, nil, "", "application/json")
 }
 
+// rootPath marks a path on the server's root rather than under the kubeconfig's server
+// path, e.g. Rancher's /v3 API next to https://rancher/k8s/clusters/<id>.
+const rootMark = "\x00root"
+
+func rootPath(p string) string { return rootMark + p }
+
 func (c *Client) url(path string, q url.Values) string {
 	u := *c.base
 	if i := strings.IndexByte(path, '?'); i >= 0 {
 		path = path[:i]
 	}
 	u.Path = strings.TrimRight(c.base.Path, "/") + path
+	if strings.HasPrefix(path, rootMark) {
+		u.Path = strings.TrimPrefix(path, rootMark)
+	}
 	u.RawQuery = q.Encode()
 	return u.String()
 }
