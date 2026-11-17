@@ -101,6 +101,17 @@ func (c *cluster) initGeneric() {
 			pv("pvc-5f6a", "2Gi", "Released", "ecrm/ecrm-tmp", "cephfs-retain"),
 			pv("pv-nfs-archive", "500Gi", "Available", "", "nfs"),
 		)},
+		{"traefik.io", "v1alpha1", "ingressroutes", "IngressRoute", true, mk(
+			obj{"apiVersion": "traefik.io/v1alpha1", "kind": "IngressRoute", "metadata": meta("payments", "payments-api", nil),
+				"spec": obj{"entryPoints": []string{"websecure"}, "routes": []obj{{"match": "Host(`pay.example.com`)", "kind": "Rule",
+					"services": []obj{{"name": "payments-api", "port": 80}}, "middlewares": []obj{{"name": "strip-api"}}}}}},
+		)},
+		{"traefik.io", "v1alpha1", "middlewares", "Middleware", true, mk(
+			obj{"apiVersion": "traefik.io/v1alpha1", "kind": "Middleware", "metadata": meta("payments", "strip-api", nil),
+				"spec": obj{"stripPrefix": obj{"prefixes": []string{"/api"}}}},
+			obj{"apiVersion": "traefik.io/v1alpha1", "kind": "Middleware", "metadata": meta("ingress", "redirect-https", nil),
+				"spec": obj{"redirectScheme": obj{"scheme": "https", "permanent": true}}},
+		)},
 		{"networking.k8s.io", "v1", "ingresses", "Ingress", true, mk(
 			obj{"apiVersion": "networking.k8s.io/v1", "kind": "Ingress", "metadata": meta("ecrm", "ecrm-frontend", nil),
 				"spec": obj{"ingressClassName": "traefik", "rules": []obj{{"host": "ecrm.example.com", "http": obj{"paths": []obj{{"path": "/", "pathType": "Prefix",

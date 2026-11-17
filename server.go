@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -462,7 +463,8 @@ func (s *Server) routes() http.Handler {
 	s.dnsRoutes(mux)
 
 	mux.HandleFunc("GET /api/info", func(w http.ResponseWriter, r *http.Request) {
-		info := map[string]any{"version": version, "readOnly": s.readOnly, "shell": s.shellAllowed(r), "os": runtime.GOOS, "admin": s.isAdmin(r)}
+		_, kerr := exec.LookPath("kubectl")
+		info := map[string]any{"version": version, "readOnly": s.readOnly, "shell": s.shellAllowed(r), "console": kerr == nil, "os": runtime.GOOS, "admin": s.isAdmin(r)}
 		if u := reqUser(r); u != nil {
 			info["user"] = u.view()
 		}

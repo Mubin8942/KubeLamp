@@ -61,6 +61,7 @@ func (s *Server) shellAllowed(r *http.Request) bool {
 func (s *Server) terminalRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/exec", s.handleExec)
 	mux.HandleFunc("GET /api/shell", s.handleShell)
+	mux.HandleFunc("GET /api/console", s.handleConsole)
 }
 
 // ---------------------------------------------------------------- pod exec

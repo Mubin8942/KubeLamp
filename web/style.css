@@ -875,3 +875,13 @@ body.side-min .side-search { display: none; }
 .term-min:hover { border-color: var(--accent); }
 .term-min::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 3px rgba(12,163,12,.2); order: -1; }
 body:has(.toasts:not(:empty)) .term-min { bottom: 70px; }
+
+/* kubectl console: cluster / namespace above the terminal (always dark, like the terminal) */
+.term-ctxbar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid #263345; background: #0e141c; flex: none; }
+.term-ctxbar .grow { flex: 1; }
+.term-ctxlbl { font: 600 11.5px var(--mono); color: #8fb3ff; letter-spacing: .03em; text-transform: uppercase; }
+.term-ctxhint { font-size: 12px; color: #7c8a9c; } .term-ctxhint b { color: #a9b6c6; font-weight: 600; }
+.term-ctxbar .dd { height: 28px; background: #151c25 !important; border-color: #2f3d4f; color: #e6edf3; font-size: 12.5px; }
+.term-ctxbar .dd .lbl, .term-ctxbar .dd .chev { color: #7c8a9c; stroke: #7c8a9c; }
+.term-ctxbar .dd:hover { border-color: #5c6b7d; }
+@media (max-width: 760px) { .term-ctxhint { display: none; } }

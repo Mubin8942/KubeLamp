@@ -20,7 +20,8 @@ const Term = (() => {
     brightBlack: '#5c6b7d', brightRed: '#ff8a8a', brightGreen: '#6fdca4', brightYellow: '#f2cc6b', brightBlue: '#8fb3ff', brightMagenta: '#dcb0f5', brightCyan: '#7fdde9', brightWhite: '#ffffff',
   };
   const wsURL = path => (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + apiURL(path);
-  const tabIcon = t => `<svg class="ico" viewBox="0 0 24 24">${t.kind === 'exec' ? '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8.5 10l2.5 2-2.5 2M13 14.5h3"/>' : '<path d="M5 8l4 4-4 4M11 17h8"/>'}</svg>`;
+  const tabIcon = t => `<svg class="ico" viewBox="0 0 24 24">${t.kind === 'exec' ? '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8.5 10l2.5 2-2.5 2M13 14.5h3"/>'
+    : t.kind === 'kubectl' ? '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M9 10l2 2-2 2M12.5 14H15"/>' : '<path d="M5 8l4 4-4 4M11 17h8"/>'}</svg>`;
 
   // hidden with sessions still open: a floating bar at the bottom brings them back
   function updateMin() {
@@ -37,7 +38,7 @@ const Term = (() => {
     try { localStorage.setItem('kd.term.open', open ? '1' : ''); } catch {}
     if (!open && full) setFull(false);
     if (open) {
-      if (!tabs.length) newShell();
+      if (!tabs.length) newConsole();
       requestAnimationFrame(fitAll);
     }
   }
@@ -54,9 +55,10 @@ const Term = (() => {
       if (e.target.closest('[data-close]')) close(id); else select(id);
     }));
     body.querySelector('.term-empty')?.remove();
-    if (!tabs.length) body.insertAdjacentHTML('beforeend', `<div class="term-empty"><div>No sessions.<br><button class="btn" style="margin-top:10px" id="termStart">${ICON.term}Open a shell</button></div></div>`);
-    $('#termStart')?.addEventListener('click', () => newShell());
+    if (!tabs.length) body.insertAdjacentHTML('beforeend', `<div class="term-empty"><div>No sessions.<br><button class="btn" style="margin-top:10px" id="termStart">${ICON.term}Open kubectl console</button></div></div>`);
+    $('#termStart')?.addEventListener('click', () => newConsole());
     drawState();
+    drawCtx();
   }
   function drawState() {
     const n = targets().length;
@@ -210,7 +212,7 @@ const Term = (() => {
     ws.onopen = () => { try { t.fit.fit(); } catch {} sendSize(t); drawState(); };
     ws.onmessage = ev => {
       if (typeof ev.data === 'string') {
-        try { const m = JSON.parse(ev.data); if (m.t === 'exit') { t.dead = true; t.term.write(`\r\n\x1b[2m[${m.msg || 'session ended'} — press Enter to reconnect]\x1b[0m\r\n`); renderTabs(); } } catch {}
+        try { const m = JSON.parse(ev.data); if (m.t === 'ctx') { setTabCtx(t, m.ctx, m.ns); return; } if (m.t === 'exit') { t.dead = true; t.term.write(`\r\n\x1b[2m[${m.msg || 'session ended'} — press Enter to reconnect]\x1b[0m\r\n`); renderTabs(); } } catch {}
         return;
       }
       if (!hlOn) { t.term.write(new Uint8Array(ev.data)); return; }
@@ -232,6 +234,56 @@ const Term = (() => {
     const n = tabs.filter(t => t.kind === 'shell').length + 1;
     return open({ kind: 'shell', title: ctx ? `${shortName(ctx)}${n > 1 ? ' ' + n : ''}` : `shell ${n}`,
       tip: ctx ? `Local shell · kubectl uses context ${ctx}` : 'Local shell', path: 'shell?ctx=' + enc(ctx || '') });
+  }
+
+  // ---- kubectl console: kubectl with the user's own kubeconfig; cluster and namespace
+  // are picked in the bar above the terminal
+  function newConsole(ctx = parseRoute().ctx || S.clusters[0]?.name || '', ns = S.ns || '') {
+    if (S.info && S.info.console === false) { toast('kubectl isn\'t installed on the KubeLamp server.', 'err'); return; }
+    const t = open({ kind: 'kubectl', title: ctx ? `${shortName(ctx)} · ${ns || 'default'}` : 'kubectl', tip: 'kubectl console',
+      path: `console?ctx=${enc(ctx)}&ns=${enc(ns)}` });
+    t.ctx = ctx; t.ns = ns;
+    drawCtx();
+    return t;
+  }
+  function setTabCtx(t, ctx, ns) {
+    t.ctx = ctx; t.ns = ns;
+    t.path = `console?ctx=${enc(ctx)}&ns=${enc(ns)}`; // a reconnect keeps the choice
+    t.title = ctx ? `${shortName(ctx)} · ${ns || 'default'}` : 'kubectl';
+    t.tip = `kubectl console · ${ctx || 'no cluster'}${ns ? ' · namespace ' + ns : ''}`;
+    renderTabs();
+  }
+  const nsCache = {};
+  async function drawCtx() {
+    const bar = $('#termCtx');
+    const t = active;
+    if (!t || t.kind !== 'kubectl') { bar.hidden = true; bar.dataset.for = ''; return; }
+    bar.hidden = false;
+    const key = t.id + '|' + t.ctx + '|' + t.ns + '|' + S.clusters.length;
+    if (bar.dataset.for === key) return;
+    bar.dataset.for = key;
+    const clusters = S.clusters.filter(c => c.status !== 'error' || c.name === t.ctx);
+    bar.innerHTML = `<span class="term-ctxlbl">kubectl</span>
+      <select id="tcCtx" data-label="Cluster">${clusters.map(c => `<option value="${esc(c.name)}" ${c.name === t.ctx ? 'selected' : ''}>${esc(shortName(c.name))}</option>`).join('') || '<option value="">No clusters…</option>'}</select>
+      <select id="tcNs" data-label="Namespace"><option value="">${t.ns ? esc(t.ns) : 'default'}</option></select>
+      <span class="grow"></span><span class="term-ctxhint">runs kubectl with your kubeconfig · type <b>help</b></span>`;
+    const send = (ctx, ns) => { if (t.ws && t.ws.readyState === 1) t.ws.send(JSON.stringify({ t: 'c', ctx, ns })); t.term.focus(); };
+    $('#tcCtx', bar).addEventListener('change', e => send(e.target.value, ''));
+    $('#tcNs', bar).addEventListener('change', e => send(t.ctx, e.target.value));
+    if (!t.ctx) return;
+    try {
+      const list = nsCache[t.ctx] || (nsCache[t.ctx] = await api('namespaces?ctx=' + enc(t.ctx)));
+      if (bar.dataset.for !== key) return;
+      const names = list.map(n => n.name);
+      if (t.ns && !names.includes(t.ns)) names.unshift(t.ns);
+      $('#tcNs', bar).innerHTML = `<option value="" ${!t.ns ? 'selected' : ''}>default (from kubeconfig)</option>` +
+        names.map(n => `<option value="${esc(n)}" ${n === t.ns ? 'selected' : ''}>${esc(n)}</option>`).join('');
+    } catch { delete nsCache[t.ctx]; }
+  }
+  function newMenu(anchor) {
+    const items = [{ label: 'kubectl console', sub: 'your kubeconfig', icon: ICON.term, run: () => newConsole() }];
+    if (S.info?.shell) items.push({ label: 'Server shell', sub: 'admin · bash on the KubeLamp server', icon: ICON.term, run: () => newShell() });
+    openPop(anchor, items);
   }
 
   function openExec(ctx, ns, pod, container, opts = {}) {
@@ -270,7 +322,7 @@ const Term = (() => {
   $('#termToggle').addEventListener('click', toggle);
   $('#termHide').addEventListener('click', () => show(false));
   $('#termMin').addEventListener('click', () => show(true));
-  $('#termNew').addEventListener('click', () => newShell());
+  $('#termNew').addEventListener('click', e => newMenu(e.currentTarget));
   $('#termFull').addEventListener('click', () => setFull(!full));
   $('#termSplit').addEventListener('click', () => setSplit(!split));
   $('#termBc').addEventListener('click', () => setBroadcast(!broadcast));
@@ -292,5 +344,5 @@ const Term = (() => {
   });
   drawHL();
   renderTabs();
-  return { show, toggle, newShell, openExec, openMulti, setFull, setSplit, setBroadcast, _tabs: tabs };
+  return { show, toggle, newShell, newConsole, openExec, openMulti, setFull, setSplit, setBroadcast, _tabs: tabs };
 })();

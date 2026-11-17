@@ -42,6 +42,7 @@ const NAV = [
   ['Network', [['Routing', 'routes'], ['Services', ['', 'services']], ['Ingresses', ['networking.k8s.io', 'ingresses']],
     ['IngressRoutes', [['traefik.io', 'ingressroutes'], ['traefik.containo.us', 'ingressroutes']]],
     ['HTTPRoutes', ['gateway.networking.k8s.io', 'httproutes'], 'sub'], ['GRPCRoutes', ['gateway.networking.k8s.io', 'grpcroutes'], 'sub'],
+    ['Middlewares', [['traefik.io', 'middlewares'], ['traefik.containo.us', 'middlewares']], 'sub'],
     ['Ingress classes', ['networking.k8s.io', 'ingressclasses']],
     ['Gateways', ['gateway.networking.k8s.io', 'gateways']], ['Gateway classes', ['gateway.networking.k8s.io', 'gatewayclasses']],
     ['Network policies', ['networking.k8s.io', 'networkpolicies']], ['Cilium policies', ['cilium.io', 'ciliumnetworkpolicies']],
@@ -352,7 +353,7 @@ function live(ms, fn) {
   try {
     S.info = await api('info');
     $('#roBadge').hidden = !S.info.readOnly;
-    if (!S.info.shell) $('#termNew').title = S.info.readOnly ? 'Shell disabled in read-only mode' : !S.info.admin ? 'The local shell is for admins only' : 'Shell only available on localhost';
+    $('#termNew').title = S.info.shell ? 'New session: kubectl console or server shell' : 'New kubectl console';
     $('#stopBtn').hidden = !S.info.admin;
     const u = S.info.user;
     if (u) { $('#userBtn').hidden = false; $('#userName').textContent = u.username; $('#userInit').textContent = u.username.slice(0, 1).toUpperCase(); }

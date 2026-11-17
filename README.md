@@ -29,7 +29,7 @@ Point it at your kubeconfig and you get one web app for all your contexts. You c
 
 **Every resource type, including CRDs.** KubeLamp asks each cluster which resource types it serves and builds the navigation from that:
 - **Workloads:** Deployments, StatefulSets, DaemonSets, Pods, Jobs, CronJobs, HPAs
-- **Network:** Services, Ingresses, Traefik IngressRoutes (with HTTPRoutes nested under them), Gateways, NetworkPolicies, CiliumNetworkPolicies
+- **Network:** Services, Ingresses, Traefik IngressRoutes (with HTTPRoutes and Middlewares nested under them), Gateways, NetworkPolicies, CiliumNetworkPolicies
 - **Config:** ConfigMaps, Secrets, ExternalSecrets and SecretStores, quotas
 - **Storage:** PVCs, PVs, StorageClasses
 - **Access:** RBAC objects
@@ -50,6 +50,15 @@ Lists show the same columns as `kubectl get`, including CRD printer columns. A *
 - **Groups:** group headings with counts (for example Deployments / StatefulSets).
 - **Status:** ready pills such as `3/3`.
 - **Keyboard:** arrow keys, Enter, Esc, and type-ahead.
+
+**kubectl console (every user):** *Terminal* opens a console that runs `kubectl` with **your own kubeconfig**. *Cluster* and *Namespace* menus above it switch the target at any time, and the prompt shows `cluster:namespace`.
+- **Commands:** type `kubectl get pods`, `k get pods` or just `get pods`. One `| grep [-i] [-v] pattern` may follow.
+- **Interactive:** `exec -it`, `logs -f` and `get -w` work, and Ctrl+C stops them. ↑/↓ recall history, and Tab completes subcommands and resource types.
+- **It isn't a shell:** KubeLamp reads the line itself and starts `kubectl` directly, so `;`, `&&`, `$()` and redirection are just words. Each user gets a private HOME for kubectl's cache.
+- **Blocked, because they would reach files or the network of the KubeLamp server, where other users' kubeconfigs live:** local files (`-f path`, `-k`, `--from-file`, `--patch-file`, template files), `cp`, `edit`, `proxy`, `port-forward`, `plugin`, and switching credentials or servers (`--kubeconfig`, `--context`, `--server`, `--token`). `apply -f -` with pasted YAML works.
+- **Read-only mode:** only reading commands run (get, describe, logs, top, events, …).
+- **Audit:** every command is logged with the user's name; secret values are hidden.
+- **Admins** also keep the full *Server shell* (bash) in the terminal's *+* menu.
 
 **Run a CronJob now:** *Run now* in a CronJob's row menu, or on its page, creates a Job from the CronJob's template, like `kubectl create job --from=cronjob/<name>`, and opens it. The schedule isn't changed.
 - **Job name:** `<cronjob>-manual-<YYYYMMDD-HHMMSS>` (UTC), shortened to fit Kubernetes' 52-character limit. Its pods are named by Kubernetes: the Job name plus a short random suffix.
