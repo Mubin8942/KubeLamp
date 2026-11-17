@@ -111,7 +111,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("users: %v", err)
 	}
-	srv := &Server{reg: &Registry{}, users: users, dataDir: dataDir, localOnly: local, readOnly: *readOnly, allowShell: *allowShell,
+	srv := &Server{reg: &Registry{}, users: users, nodeIPs: openNodeIPs(dataDir), dataDir: dataDir, localOnly: local, readOnly: *readOnly, allowShell: *allowShell,
 		ftMaxDown: int64(*maxDown) << 20, ftMaxUp: int64(*maxUp) << 20, ftRate: int64(*xferRate) << 20}
 	srv.quit = func() {
 		log.Println("quit requested from the UI")

@@ -219,6 +219,8 @@ type NodeView struct {
 	Arch          string            `json:"arch"`
 	Runtime       string            `json:"runtime"`
 	InternalIP    string            `json:"internalIP"`
+	ExternalIP    string            `json:"externalIP,omitempty"`
+	ExternalSrc   string            `json:"externalSrc,omitempty"` // node | manual
 	Created       time.Time         `json:"created"`
 	Unschedulable bool              `json:"unschedulable"`
 	Taints        []string          `json:"taints"`
@@ -266,6 +268,9 @@ func nodeViews(c *Cluster, s *Snapshot, withLabels bool) []NodeView {
 			PodCap: parseQuantity(n.Status.Allocatable["pods"]),
 		}
 		for _, a := range n.Status.Addresses {
+			if a.Type == "ExternalIP" && v.ExternalIP == "" {
+				v.ExternalIP, v.ExternalSrc = a.Address, "node"
+			}
 			if a.Type == "InternalIP" && v.InternalIP == "" {
 				v.InternalIP = a.Address
 			}

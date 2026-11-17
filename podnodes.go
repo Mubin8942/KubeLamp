@@ -19,14 +19,15 @@ import (
 // otherwise the pods. Lookups that fail are not retried for 10 minutes.
 
 type PodNode struct {
-	Name       string   `json:"name"`
-	IP         string   `json:"ip"`         // the address to show: ExternalIP if known, else InternalIP
-	InternalIP string   `json:"internalIP"` // as registered with Kubernetes (status.hostIP of its pods)
-	ExternalIP string   `json:"externalIP,omitempty"`
-	Pods       int      `json:"pods"`
-	Running    int      `json:"running"`
-	Namespaces []string `json:"namespaces"`
-	PodNames   []string `json:"podNames"` // ns/name, at most 50
+	Name        string   `json:"name"`
+	IP          string   `json:"ip"`         // the address to show: ExternalIP if known, else InternalIP
+	InternalIP  string   `json:"internalIP"` // as registered with Kubernetes (status.hostIP of its pods)
+	ExternalIP  string   `json:"externalIP,omitempty"`
+	ExternalSrc string   `json:"externalSrc,omitempty"` // manual | node | rancher
+	Pods        int      `json:"pods"`
+	Running     int      `json:"running"`
+	Namespaces  []string `json:"namespaces"`
+	PodNames    []string `json:"podNames"` // ns/name, at most 50
 }
 
 type PodNodesResult struct {
@@ -177,7 +178,9 @@ func podNodes(snap *Snapshot, rancher map[string]nodeAddr) PodNodesResult {
 			if a.internal != "" {
 				pn.InternalIP = a.internal
 			}
-			pn.ExternalIP = a.external
+			if a.external != "" {
+				pn.ExternalIP, pn.ExternalSrc = a.external, res.IPSource
+			}
 		}
 		pn.IP = pn.InternalIP
 		if pn.ExternalIP != "" {
@@ -201,6 +204,13 @@ func (s *Server) podNodeRoutes(mux *http.ServeMux) {
 		if len(snap.Nodes) == 0 {
 			rancher = rancherNodeAddrs(r.Context(), c)
 		}
-		writeJSON(w, 200, podNodes(snap, rancher))
+		res := podNodes(snap, rancher)
+		for i := range res.Nodes { // an admin-set external IP wins
+			if ip := s.nodeIPs.Lookup(res.Nodes[i].Name); ip != "" {
+				n := &res.Nodes[i]
+				n.ExternalIP, n.ExternalSrc, n.IP = ip, "manual", ip
+			}
+		}
+		writeJSON(w, 200, res)
 	})
 }
