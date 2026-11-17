@@ -263,12 +263,81 @@ function eventsList(evs) {
 }
 
 // ------------------------------------------------------------------ NODES
+// Nodes seen through your pods (spec.nodeName, status.hostIP), like `kubectl get pods -o wide`:
+// for users who can't list nodes, and for "All clusters"
+async function viewPodNodes(route, sum, all) {
+  const ctx = route.ctx;
+  const ctxs = all ? S.clusters.filter(c => c.status !== 'error').map(c => c.name) : [ctx];
+  const head = all
+    ? `<div class="page-head"><div><div class="crumbs"><a href="#/">All clusters</a></div><h1>Nodes</h1><div class="sub"><span>${ctxs.length} clusters · nodes where your pods run</span></div></div></div>`
+    : clusterHead(sum, 'Nodes', `<div class="crumbs"><a href="${ctxPath(ctx)}/overview">${esc(shortName(ctx))}</a></div>`);
+  main.innerHTML = head + `
+    <div class="banner info"><b>From your pods</b><span>${all ? 'Nodes in every cluster' : 'Your user can\'t list nodes here, so these are the nodes'} your pods run on, with their IPs — the same as <code>kubectl get pods -o wide</code>. Only nodes running at least one of your pods appear.</span></div>
+    <div class="filters">${nodesClusterSelect(ctx, all)}<input type="search" id="nq" placeholder="Filter by node, IP, namespace or pod" style="width:300px"><span class="count" id="ncount"></span>
+      <button class="btn" id="ndl">${DL_ICON}Download</button></div>
+    <div class="card" id="nodesBox"><div class="muted">Loading…</div></div>`;
+  bindNodesClusterSelect(ctx);
+  if (!all) bindRefresh(ctx, () => render());
+  let rows = [], errs = [];
+  const render = async () => {
+    const got = await Promise.allSettled(ctxs.map(c => api('podnodes?ctx=' + enc(c)).then(d => ({ c, d }))));
+    rows = []; errs = [];
+    got.forEach((g, i) => {
+      if (g.status === 'rejected') { if (g.reason?.name !== 'AbortError') errs.push(`${shortName(ctxs[i])}: ${g.reason?.message}`); return; }
+      g.value.d.nodes.forEach(n => rows.push({ ...n, cluster: g.value.c }));
+    });
+    draw();
+  };
+  const shown = () => {
+    const q = ($('#nq')?.value || '').toLowerCase().trim();
+    return rows.filter(n => !q || [n.name, n.ip, shortName(n.cluster), ...n.namespaces, ...n.podNames].join(' ').toLowerCase().includes(q));
+  };
+  const draw = () => {
+    const list = shown();
+    const cols = [];
+    if (all) cols.push({ key: 'cluster', label: 'Cluster', render: n => `<a href="${ctxPath(n.cluster)}/nodes">${esc(shortName(n.cluster))}</a>` });
+    cols.push(
+      { key: 'name', label: 'Node (host name)', cls: 'name', render: n => esc(n.name) },
+      { key: 'ip', label: 'IP', render: n => n.ip ? `<span class="mono">${esc(n.ip)}</span>` : '<span class="muted">—</span>', sort: n => n.ip.split('.').map(x => x.padStart(3, '0')).join('.') },
+      { key: 'pods', label: 'Your pods', num: true, render: n => `<a href="${ctxPath(n.cluster)}/pods?q=${enc(n.name)}" title="Show these pods">${n.running}${n.running !== n.pods ? `<span class="muted"> / ${n.pods}</span>` : ''}</a>` },
+      { key: 'namespaces', label: 'Namespaces', nosort: true, render: n => `<span class="chips">${n.namespaces.slice(0, 4).map(x => `<span class="chip">${esc(x)}</span>`).join('')}${n.namespaces.length > 4 ? `<span class="muted">+${n.namespaces.length - 4}</span>` : ''}</span>` },
+    );
+    const t = table('podnodes', cols, list, { sort: { key: all ? 'cluster' : 'name', dir: 'asc' } });
+    $('#nodesBox').innerHTML = (errs.length ? `<div class="banner err" style="margin:0 0 10px"><b>Not loaded.</b><span>${esc(errs.join('; '))}</span></div>` : '')
+      + (rows.length ? t.html : `<div class="muted" style="padding:6px">None of your pods is on a node yet.</div>`);
+    t.bind($('#nodesBox'), draw);
+    $('#ncount').textContent = `${list.length} of ${rows.length} nodes`;
+  };
+  $('#nq').addEventListener('input', draw);
+  $('#ndl').onclick = e => downloadMenu(e.currentTarget, all ? 'nodes-all-clusters' : `nodes-${shortName(ctx)}`, () => [
+    ['Cluster', 'Node', 'IP', 'Running pods', 'Pods', 'Namespaces'],
+    ...shown().map(n => [shortName(n.cluster), n.name, n.ip, n.running, n.pods, n.namespaces.join(' ')])]);
+  await live(20000, render);
+}
+const DL_ICON = '<svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5"/><path d="M4 16v2.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V16"/></svg>';
+// Cluster dropdown for the Nodes page: one cluster, or all of them (nodes from pods)
+function nodesClusterSelect(ctx, all) {
+  const list = S.clusters.filter(c => c.status !== 'error' || c.name === ctx);
+  return `<select id="ncl" data-label="Cluster"><option value="*" ${all ? 'selected' : ''}>All clusters</option>${list.map(c => `<option value="${esc(c.name)}" ${!all && c.name === ctx ? 'selected' : ''}>${esc(shortName(c.name))}</option>`).join('')}</select>`;
+}
+function bindNodesClusterSelect(ctx) {
+  $('#ncl')?.addEventListener('change', e => {
+    const v = e.target.value;
+    location.hash = v === '*' ? `${ctxPath(ctx)}/nodes?all=1` : `${ctxPath(v)}/nodes`;
+  });
+}
+
 async function viewNodes(route) {
   const ctx = route.ctx;
+  if (route.q.all === '1') return viewPodNodes(route, null, true);
+  // no rights to list nodes: show the nodes from your pods instead (decided once)
+  const [d0, sum0] = await Promise.all([api('nodes?ctx=' + enc(ctx)), api('clusters').then(l => l.find(c => c.name === ctx))]);
+  if (!d0.nodes.length && isNs(sum0)) return viewPodNodes(route, sum0, false);
+  let built = false; // this page's layout, built once (never reuse the previous page's)
   const render = async () => {
     const [d, sum] = await Promise.all([api('nodes?ctx=' + enc(ctx)), api('clusters').then(l => l.find(c => c.name === ctx))]);
     const q = ($('#nq')?.value || '').toLowerCase();
-    const rows = d.nodes.filter(n => !q || n.name.toLowerCase().includes(q) || n.roles.join().includes(q));
+    const rows = d.nodes.filter(n => !q || n.name.toLowerCase().includes(q) || n.roles.join().includes(q) || (n.internalIP || '').includes(q));
     const t = table('nodes', [
       { key: 'name', label: 'Node', cls: 'name', render: n => `${esc(n.name)}<span class="sub">${esc(n.roles.join(', '))} · ${esc(n.internalIP)}</span>` },
       { key: 'ready', label: 'Status', sort: n => (n.ready ? 1 : 0), render: n => stLabel(n.ready ? (n.pressure.length ? n.pressure.join(', ') : 'Ready') : 'NotReady', n.ready ? (n.pressure.length ? 'warning' : 'good') : 'critical') + (n.unschedulable ? ' <span class="tag">cordoned</span>' : '') },
@@ -280,19 +349,19 @@ async function viewNodes(route) {
       { key: 'created', label: 'Age', num: true, sort: n => -new Date(n.created), render: n => age(n.created) },
       { key: 'spark', label: 'CPU 10m', nosort: true, render: n => spark(n.spark) },
     ], rows, { href: n => ctxPath(ctx) + '/node/' + enc(n.name) });
-    if (isNs(sum) && !d.nodes.length) {
+    if (!built) {
+      built = true;
       main.innerHTML = clusterHead(sum, 'Nodes', `<div class="crumbs"><a href="${ctxPath(ctx)}/overview">${esc(shortName(ctx))}</a></div>`) +
-        `<div class="empty-state"><h2>Nodes need cluster-wide access</h2><p>Nodes are cluster-scoped, and your kubeconfig user only has Role/RoleBinding rights in ${esc(nsShort(sum.scopeNamespaces, 6))}.</p>
-        <p class="muted">Pods still show which node they run on. To see nodes, ask for a ClusterRole with <code>get, list</code> on <code>nodes</code> (and <code>nodes</code> in <code>metrics.k8s.io</code>).</p></div>`;
-      bindRefresh(ctx, render);
-      return;
-    }
-    if (!$('#nodesBox')) {
-      main.innerHTML = clusterHead(sum, 'Nodes', `<div class="crumbs"><a href="${ctxPath(ctx)}/overview">${esc(shortName(ctx))}</a></div>`) +
-        `<div class="filters"><input type="search" id="nq" placeholder="Filter by name or role"><span class="count" id="ncount"></span></div><div class="card" id="nodesBox"></div>`;
+        `<div class="filters">${nodesClusterSelect(ctx, false)}<input type="search" id="nq" placeholder="Filter by name, role or IP" style="width:260px"><span class="count" id="ncount"></span>
+          <button class="btn" id="ndl">${DL_ICON}Download</button></div><div class="card" id="nodesBox"></div>`;
       $('#nq').addEventListener('input', render);
+      bindNodesClusterSelect(ctx);
       bindRefresh(ctx, render);
     }
+    $('#ndl').onclick = e => downloadMenu(e.currentTarget, `nodes-${shortName(ctx)}`, () => [
+      ['Node', 'Internal IP', 'Roles', 'Status', 'CPU allocatable', 'Memory allocatable', 'Pods', 'Pod capacity', 'Kubelet', 'Runtime'],
+      ...rows.map(n => [n.name, n.internalIP, n.roles.join(' '), n.ready ? (n.pressure.length ? n.pressure.join(' ') : 'Ready') : 'NotReady',
+        fmtCPU(n.cpu.alloc), fmtMem(n.mem.alloc), n.pods, n.podCap, n.version, n.runtime])]);
     $('#nodesBox').innerHTML = t.html; t.bind($('#nodesBox'), render);
     $('#ncount').textContent = `${rows.length} of ${d.nodes.length} nodes`;
   };
@@ -475,6 +544,7 @@ async function viewPods(route) {
     <div id="pBulk"></div>
     <div class="card" id="pBox"><div class="muted">Loading…</div></div>`;
   if (route.q.status) $('#pst').value = route.q.status;
+  if (route.q.q) $('#pq').value = route.q.q;
   bindRefresh(ctx, () => render());
   // refresh-rate picker (top right), remembered across visits
   const rates = [[1000, '1s'], [5000, '5s'], [10000, '10s'], [30000, '30s'], [60000, '1 min']];

@@ -454,6 +454,7 @@ func (s *Server) routes() http.Handler {
 	s.resourceRoutes(mux)
 	s.kubeconfigRoutes(mux)
 	s.routeRoutes(mux)
+	s.podNodeRoutes(mux)
 	s.terminalRoutes(mux)
 	s.pvcRoutes(mux)
 	s.overviewRoutes(mux)

@@ -299,6 +299,38 @@ function table(id, cols, rows, opts = {}) {
 }
 
 
+// ------------------------------------------------------------------ downloads
+// rows: arrays of cells; the first row is the header
+function toCSV(rows) {
+  const cell = v => {
+    let s = String(v ?? '');
+    if (/^[=+@]/.test(s) || (/^-/.test(s) && isNaN(+s))) s = "'" + s; // never a spreadsheet formula
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  return rows.map(r => r.map(cell).join(',')).join('\r\n') + '\r\n';
+}
+function toTXT(rows) {
+  const w = rows[0].map((_, i) => Math.max(...rows.map(r => String(r[i] ?? '').length)));
+  const line = r => r.map((c, i) => String(c ?? '').padEnd(w[i])).join('  ').trimEnd();
+  return [line(rows[0]), w.map(n => '-'.repeat(n)).join('  '), ...rows.slice(1).map(line)].join('\n') + '\n';
+}
+function downloadText(name, text, mime) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: mime + ';charset=utf-8' }));
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+// a Download button with CSV / TXT; rows() is called when one is picked
+function downloadMenu(anchor, base, rows) {
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
+  const file = base.replace(/[^\w.-]+/g, '_') + '-' + stamp;
+  openPop(anchor, [
+    { label: 'CSV', sub: 'spreadsheets', icon: ICON.copy, run: () => { downloadText(file + '.csv', toCSV(rows()), 'text/csv'); toast('Downloaded ' + file + '.csv'); } },
+    { label: 'Text', sub: 'aligned columns', icon: ICON.copy, run: () => { downloadText(file + '.txt', toTXT(rows()), 'text/plain'); toast('Downloaded ' + file + '.txt'); } },
+  ]);
+}
+
 // ------------------------------------------------------------------ bulk selection
 // bar above a table while rows are selected
 function bulkBar(el, set, { noun = 'item', onDelete, onClear }) {

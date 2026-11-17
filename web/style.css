@@ -885,3 +885,4 @@ body:has(.toasts:not(:empty)) .term-min { bottom: 70px; }
 .term-ctxbar .dd .lbl, .term-ctxbar .dd .chev { color: #7c8a9c; stroke: #7c8a9c; }
 .term-ctxbar .dd:hover { border-color: #5c6b7d; }
 @media (max-width: 760px) { .term-ctxhint { display: none; } }
+.filters .btn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }

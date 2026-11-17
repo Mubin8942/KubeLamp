@@ -37,6 +37,11 @@ Point it at your kubeconfig and you get one web app for all your contexts. You c
 
 Lists show the same columns as `kubectl get`, including CRD printer columns. A **Wide** toggle adds the extra columns from `-o wide`.
 
+**Nodes without node rights:** if your user can't list nodes (namespace-scoped, e.g. Rancher project members), the Nodes page lists the nodes your pods run on, with their host IPs. That's what `kubectl get pods -o wide` shows, read from the pods KubeLamp already has.
+- **Each node** shows how many of your pods run there and in which namespaces. The pod count links to those pods.
+- **Cluster dropdown:** one cluster, or *All clusters* in one list.
+- **Download:** CSV or TXT, on this view and on the full Nodes view.
+
 **Delete many at once:** every resource list, plus the Pods and Workloads pages, has checkboxes. Shift-click selects a range, and the header box selects everything shown. *Delete N* lists every name before deleting; 10 or more need the count typed in.
 - **Filters:** only rows you can see stay selected, so changing a filter never leaves hidden rows marked for deletion.
 - **How it runs:** deletes go 4 at a time, and failures are reported per object.
