@@ -157,13 +157,13 @@ function nsListHtml(list, max = 12) {
   if (list.length <= max) return b(list);
   return `${b(list.slice(0, max))}<span class="ns-rest" hidden><b>, ${esc(list.slice(max).join(', '))}</b></span> <button class="ns-more" type="button" onclick="this.previousElementSibling.hidden=false;this.remove()">+${list.length - max} more</button>`;
 }
-function clusterHead(sum, title, crumbs = '') {
+function clusterHead(sum, title, crumbs = '', { actions = true } = {}) {
   const c = sum;
   return `<div class="page-head"><div>${crumbs}<h1>${esc(title)}</h1>
     <div class="sub"><span>${stLabel(c.status === 'ok' ? 'Connected' : c.status === 'partial' ? 'Partially readable' : c.status, c.status === 'ok' ? 'good' : 'warning')}</span>
     ${c.version ? `<span>${esc(c.version)}</span>` : ''}<span class="mono">${esc(c.server)}</span><span>${esc(c.authType)}</span>
     <span class="muted" id="updated">updated ${c.at ? age(c.at) + ' ago' : '—'}</span></div></div>
-    <div class="right"><button class="btn" id="accessBtn" title="Cluster-wide or namespace-scoped (Role/RoleBinding) access"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>${esc(isNs(c) ? 'Namespaces: ' + (c.scopeNamespaces || []).length : 'Access')}</button><button class="btn" id="refreshBtn"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>Refresh</button></div></div>
+    <div class="right">${actions ? `<button class="btn" id="accessBtn" title="Cluster-wide or namespace-scoped (Role/RoleBinding) access"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>${esc(isNs(c) ? 'Namespaces: ' + (c.scopeNamespaces || []).length : 'Access')}</button><button class="btn" id="refreshBtn"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>Refresh</button>` : ''}</div></div>
     ${certBanner(c)}
     ${c.status === 'partial' ? `<div class="banner"><b>Some data is missing.</b><span>${esc(c.error)}</span></div>` : ''}
     ${!c.metricsAvailable ? (/forbidden|RBAC/i.test(c.metricsErr || '')
@@ -268,7 +268,7 @@ async function viewPodNodes(route, sum, all) {
   const ctxs = all ? S.clusters.filter(c => c.status !== 'error').map(c => c.name) : [ctx];
   const head = all
     ? `<div class="page-head"><div><div class="crumbs"><a href="#/">All clusters</a></div><h1>Nodes</h1><div class="sub"><span>${ctxs.length} clusters · nodes where your pods run</span></div></div></div>`
-    : clusterHead(sum, 'Nodes', `<div class="crumbs"><a href="${ctxPath(ctx)}/overview">${esc(shortName(ctx))}</a></div>`);
+    : clusterHead(sum, 'Nodes', `<div class="crumbs"><a href="${ctxPath(ctx)}/overview">${esc(shortName(ctx))}</a></div>`, { actions: false });
   main.innerHTML = head + `
     <div class="filters">${nodesClusterSelect(ctx, all)}<input type="search" id="nq" placeholder="Filter by node, IP, namespace or pod" style="width:300px"><span class="count" id="ncount"></span>
       ${importBtn()}<button class="btn" id="ndl">${DL_ICON}Download</button></div>
@@ -407,7 +407,7 @@ async function viewNodes(route) {
     ], rows, { href: n => ctxPath(ctx) + '/node/' + enc(n.name) });
     if (!built) {
       built = true;
-      main.innerHTML = clusterHead(sum, 'Nodes', `<div class="crumbs"><a href="${ctxPath(ctx)}/overview">${esc(shortName(ctx))}</a></div>`) +
+      main.innerHTML = clusterHead(sum, 'Nodes', `<div class="crumbs"><a href="${ctxPath(ctx)}/overview">${esc(shortName(ctx))}</a></div>`, { actions: false }) +
         `<div class="filters">${nodesClusterSelect(ctx, false)}<input type="search" id="nq" placeholder="Filter by name, role or IP" style="width:260px"><span class="count" id="ncount"></span>
           ${importBtn()}<button class="btn" id="ndl">${DL_ICON}Download</button></div><div class="card" id="nodesBox"></div>`;
       $('#nq').addEventListener('input', render);
