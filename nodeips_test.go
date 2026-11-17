@@ -15,7 +15,7 @@ import (
 
 func TestNodeKey(t *testing.T) {
 	for in, want := range map[string]string{
-		"pbvl-gencl01-w01.robi.com.bd": "pbvl-gencl01-w01", "PBVL-STGCL01-W11": "pbvl-stgcl01-w11", " pbvl-stgcl01-w01 ": "pbvl-stgcl01-w01", "10.0.0.1": "10.0.0.1",
+		"gen1-w01.example.com": "gen1-w01", "STG-W11": "stg-w11", " stg-w01 ": "stg-w01", "10.0.0.1": "10.0.0.1",
 	} {
 		if got := nodeKey(in); got != want {
 			t.Errorf("nodeKey(%q) = %q", in, got)
@@ -24,9 +24,9 @@ func TestNodeKey(t *testing.T) {
 }
 
 func TestParseNodeIPText(t *testing.T) {
-	text := "Hostname\t IP\npbvl-stgcl01-w01\t172.18.4.24\nPBVL-STGCL01-W11, 10.101.112.87\npbvl-gencl01-w01.robi.com.bd;172.18.16.11\nw02 10.0.0.2\n\nnot a row\nhost-x\tnot-an-ip\n"
+	text := "Hostname\t IP\nstg-w01\t192.0.2.24\nSTG-W11, 198.51.100.87\ngen1-w01.example.com;192.0.2.11\nw02 10.0.0.2\n\nnot a row\nhost-x\tnot-an-ip\n"
 	got, skipped := parseNodeIPRows(textRows(text))
-	want := map[string]string{"pbvl-stgcl01-w01": "172.18.4.24", "PBVL-STGCL01-W11": "10.101.112.87", "pbvl-gencl01-w01.robi.com.bd": "172.18.16.11", "w02": "10.0.0.2"}
+	want := map[string]string{"stg-w01": "192.0.2.24", "STG-W11": "198.51.100.87", "gen1-w01.example.com": "192.0.2.11", "w02": "10.0.0.2"}
 	if len(got) != len(want) {
 		t.Fatalf("got %v", got)
 	}
@@ -46,13 +46,13 @@ func testXLSX(t *testing.T) []byte {
 	z := zip.NewWriter(&buf)
 	add := func(name, body string) { w, _ := z.Create(name); io.WriteString(w, body) }
 	add("xl/sharedStrings.xml", `<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><si><t>Hostname</t></si><si><t> IP</t></si>`+
-		`<si><t>pbvl-stgcl01-w01</t></si><si><t>172.18.4.24</t></si><si><r><t>PBVL-STGCL01-</t></r><r><t>W11</t></r></si><si><t>10.101.112.87</t></si></sst>`)
+		`<si><t>stg-w01</t></si><si><t>192.0.2.24</t></si><si><r><t>STG-</t></r><r><t>W11</t></r></si><si><t>198.51.100.87</t></si></sst>`)
 	add("xl/worksheets/sheet1.xml", `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>`+
 		`<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>`+
 		`<row r="2"><c r="A2" t="s"><v>2</v></c><c r="B2" t="s"><v>3</v></c></row>`+
 		`<row r="3"><c r="A3" t="s"><v>4</v></c><c r="B3" t="s"><v>5</v></c></row></sheetData></worksheet>`)
 	add("xl/worksheets/sheet2.xml", `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>`+
-		`<row r="2"><c r="A2" t="inlineStr"><is><t>pbvl-gencl02-w01.robi.com.bd</t></is></c><c r="B2" t="inlineStr"><is><t>172.18.16.16</t></is></c></row></sheetData></worksheet>`)
+		`<row r="2"><c r="A2" t="inlineStr"><is><t>gen2-w01.example.com</t></is></c><c r="B2" t="inlineStr"><is><t>192.0.2.16</t></is></c></row></sheetData></worksheet>`)
 	z.Close()
 	return buf.Bytes()
 }
@@ -63,7 +63,7 @@ func TestXLSXRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := parseNodeIPRows(rows)
-	if got["pbvl-stgcl01-w01"] != "172.18.4.24" || got["PBVL-STGCL01-W11"] != "10.101.112.87" || got["pbvl-gencl02-w01.robi.com.bd"] != "172.18.16.16" || len(got) != 3 {
+	if got["stg-w01"] != "192.0.2.24" || got["STG-W11"] != "198.51.100.87" || got["gen2-w01.example.com"] != "192.0.2.16" || len(got) != 3 {
 		t.Fatalf("%v", got)
 	}
 	if _, err := xlsxRows([]byte("nope")); err == nil {
@@ -88,16 +88,16 @@ func TestNodeIPsHTTP(t *testing.T) {
 			t.Errorf("bob %s %s: %d", c.m, c.p, code)
 		}
 	}
-	if code, _ := admin.do("PUT", "/api/nodeips", map[string]string{"host": "pbvl-gencl01-w01.robi.com.bd", "ip": "not-ip"}); code != 400 {
+	if code, _ := admin.do("PUT", "/api/nodeips", map[string]string{"host": "gen1-w01.example.com", "ip": "not-ip"}); code != 400 {
 		t.Error("bad IP accepted")
 	}
 	if code, _ := admin.do("PUT", "/api/nodeips", map[string]string{"host": "a b", "ip": "1.2.3.4"}); code != 400 {
 		t.Error("bad host accepted")
 	}
-	if code, _ := admin.do("PUT", "/api/nodeips", map[string]string{"host": "pbvl-gencl01-w01.robi.com.bd", "ip": "172.18.16.11"}); code != 200 {
+	if code, _ := admin.do("PUT", "/api/nodeips", map[string]string{"host": "gen1-w01.example.com", "ip": "192.0.2.11"}); code != 200 {
 		t.Fatal("set")
 	}
-	if srv.nodeIPs.Lookup("PBVL-GENCL01-W01") != "172.18.16.11" || srv.nodeIPs.Lookup("pbvl-gencl01-w01.other.domain") != "172.18.16.11" {
+	if srv.nodeIPs.Lookup("GEN1-W01") != "192.0.2.11" || srv.nodeIPs.Lookup("gen1-w01.other.domain") != "192.0.2.11" {
 		t.Error("lookup ignores case and domain")
 	}
 	// import an .xlsx (raw body) and pasted text
@@ -125,7 +125,7 @@ func TestNodeIPsHTTP(t *testing.T) {
 	}
 	// saved, mode 600, survives a restart; removing works
 	st, _ := os.Stat(filepath.Join(dir, "node-ips.json"))
-	if st.Mode().Perm() != 0o600 || openNodeIPs(dir).Lookup("pbvl-stgcl01-w11") != "10.101.112.87" {
+	if st.Mode().Perm() != 0o600 || openNodeIPs(dir).Lookup("stg-w11") != "198.51.100.87" {
 		t.Error("persisted")
 	}
 	admin.do("PUT", "/api/nodeips", map[string]string{"host": "w9", "ip": ""})
@@ -147,18 +147,18 @@ func TestNodeIPsMerge(t *testing.T) {
 		return p
 	}
 	store := openNodeIPs(t.TempDir())
-	store.set(map[string]string{"PBVL-GENCL01-W01": "172.18.16.11"}, "admin")
-	res := podNodes(&Snapshot{Pods: []Pod{mk("pbvl-gencl01-w01.robi.com.bd", "100.71.1.26"), mk("pbvl-gencl01-w02.robi.com.bd", "100.71.1.27")}}, nil)
+	store.set(map[string]string{"GEN1-W01": "192.0.2.11"}, "admin")
+	res := podNodes(&Snapshot{Pods: []Pod{mk("gen1-w01.example.com", "100.64.1.26"), mk("gen1-w02.example.com", "100.64.1.27")}}, nil)
 	// what the handler does
 	for i := range res.Nodes {
 		if ip := store.Lookup(res.Nodes[i].Name); ip != "" {
 			res.Nodes[i].ExternalIP, res.Nodes[i].ExternalSrc, res.Nodes[i].IP = ip, "manual", ip
 		}
 	}
-	if n := res.Nodes[0]; n.ExternalIP != "172.18.16.11" || n.InternalIP != "100.71.1.26" || n.ExternalSrc != "manual" {
+	if n := res.Nodes[0]; n.ExternalIP != "192.0.2.11" || n.InternalIP != "100.64.1.26" || n.ExternalSrc != "manual" {
 		t.Errorf("w01: %+v", n)
 	}
-	if n := res.Nodes[1]; n.ExternalIP != "" || n.InternalIP != "100.71.1.27" {
+	if n := res.Nodes[1]; n.ExternalIP != "" || n.InternalIP != "100.64.1.27" {
 		t.Errorf("w02: %+v", n)
 	}
 	var nilStore *NodeIPStore

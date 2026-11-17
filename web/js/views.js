@@ -332,7 +332,7 @@ function bindIPEdits(box, after) {
     const host = b.dataset.setip, cur = b.dataset.cur;
     const res = await modal({
       title: `External IP of ${host}`,
-      body: `<label class="field">IP address<input type="text" id="nipVal" value="${esc(cur)}" placeholder="172.18.16.11" spellcheck="false" autocomplete="off"></label>
+      body: `<label class="field">IP address<input type="text" id="nipVal" value="${esc(cur)}" placeholder="192.0.2.11" spellcheck="false" autocomplete="off"></label>
         <p class="muted">Shown to everyone on the Nodes pages instead of the address the node registered with Kubernetes. Matched by host name (case and domain don't matter).</p>`,
       actions: [{ label: 'Cancel', value: null }, ...(cur ? [{ label: 'Remove', kind: 'danger', value: 'remove' }] : []),
         { label: 'Save', kind: 'primary', submit: true, run: async d => { const ip = $('#nipVal', d).value.trim(); if (!ip) throw new Error('Enter an IP address'); await send('PUT', 'nodeips', { host, ip }); return 'saved'; } }],
@@ -346,7 +346,7 @@ async function importNodeIPs(after) {
     title: 'Import node IPs', wide: true,
     body: `<p>One node per line: <b>host name</b> and <b>IP</b>. Copy the two columns from Excel and paste them here, or choose the workbook itself (<code>.xlsx</code>, every sheet is read) or a CSV.
       Host names match regardless of case and domain; existing entries are updated.</p>
-      <label class="field">Paste<textarea id="nipText" rows="8" spellcheck="false" placeholder="pbvl-gencl01-w01.robi.com.bd&#9;172.18.16.11&#10;pbvl-gencl01-w02.robi.com.bd&#9;172.18.16.12"></textarea></label>
+      <label class="field">Paste<textarea id="nipText" rows="8" spellcheck="false" placeholder="worker-01.example.com&#9;192.0.2.11&#10;worker-02.example.com&#9;192.0.2.12"></textarea></label>
       <label class="field">…or a file<input type="file" id="nipFile" accept=".xlsx,.csv,.txt,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>`,
     actions: [{ label: 'Cancel', value: null }, { label: 'Import', kind: 'primary', submit: true, run: async d => {
       const f = $('#nipFile', d).files[0];

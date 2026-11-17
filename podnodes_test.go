@@ -39,8 +39,8 @@ func TestPodNodes(t *testing.T) {
 	}
 	// no node rights, Rancher knows the real addresses
 	snap.Nodes = nil
-	r = podNodes(snap, map[string]nodeAddr{"w-01": {internal: "100.71.0.11", external: "172.18.4.24"}, "w-02": {internal: "10.101.112.245"}})
-	if r.IPSource != "rancher" || r.Nodes[0].IP != "172.18.4.24" || r.Nodes[0].InternalIP != "100.71.0.11" || r.Nodes[1].IP != "10.101.112.245" {
+	r = podNodes(snap, map[string]nodeAddr{"w-01": {internal: "100.64.0.11", external: "192.0.2.24"}, "w-02": {internal: "198.51.100.245"}})
+	if r.IPSource != "rancher" || r.Nodes[0].IP != "192.0.2.24" || r.Nodes[0].InternalIP != "100.64.0.11" || r.Nodes[1].IP != "198.51.100.245" {
 		t.Errorf("rancher addresses: %+v", r.Nodes)
 	}
 	if r := podNodes(&Snapshot{}, nil); r.Nodes == nil || len(r.Nodes) != 0 {

@@ -25,7 +25,7 @@ import (
 // External node IPs set by admins: the host addresses Kubernetes doesn't know (nodes
 // registered with an overlay address). Kept in <data>/node-ips.json (mode 600) and shown
 // to everyone on the Nodes pages. Matched by host name, ignoring case and the domain, so
-// "PBVL-STGCL01-W11" and "pbvl-gencl01-w01.robi.com.bd" both find their node.
+// "STG-W11" and "gen1-w01.example.com" both find their node.
 
 type NodeIP struct {
 	Host    string    `json:"host"` // as entered
@@ -40,7 +40,7 @@ type NodeIPStore struct {
 	m    map[string]NodeIP // nodeKey(host) → entry
 }
 
-// nodeKey: lower case, first DNS label ("pbvl-gencl01-w01.robi.com.bd" → "pbvl-gencl01-w01")
+// nodeKey: lower case, first DNS label ("gen1-w01.example.com" → "gen1-w01")
 func nodeKey(host string) string {
 	h := strings.ToLower(strings.TrimSpace(host))
 	if i := strings.IndexByte(h, '.'); i > 0 && net.ParseIP(h) == nil {
