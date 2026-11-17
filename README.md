@@ -115,6 +115,13 @@ Choosing a namespace in the top namespace picker opens its overview.
 - **Limits:** claims with no running pod can't be measured, `subPath` mounts show the whole volume and are marked `~`, and `-read-only` mode turns this off because it needs exec.
 
 **Tools → Networking → Pod Connectivity Inspector** (the Tools button, left of Terminal): find out whether a firewall lets traffic from your workers reach an IP, port or domain, without any access to the nodes. It runs `nc`, `curl`, `wget` or bash `/dev/tcp`, whichever the container has, inside your pods.
+
+- **Test from every node (the default):** *Probe DaemonSet*.
+  - **How it runs:** KubeLamp starts a temporary DaemonSet in the namespace chosen at the top (one small pod on every node), waits until its pods run, probes from them, and deletes it, even when the test fails or is cancelled. DaemonSets left behind by a stopped KubeLamp are removed by the next test in that namespace.
+  - **Default pod:** `curlimages/curl` as non-root (65534), read-only root filesystem, all capabilities dropped, no service-account token, tiny resources. It tolerates all taints so it runs on every node.
+  - **Admins** can change the YAML under *DaemonSet YAML*, e.g. to pull the image from Harbor. It's kept in `<data>/probe-daemonset.yaml`. Others can read it.
+  - **Permissions:** the user's own RBAC must allow creating DaemonSets and pod exec in that namespace.
+- **Other modes:** *One pod per node*, *All running pods* and *Pick pods* test from your own pods instead.
 - **Targets:** single IPs, ranges (`172.18.1.32-40`, `10.0.0.254-10.0.1.9`), CIDR (`10.0.0.0/28`, down to /22), domains, `host:port`, and URLs. Ports can be `22-25`, comma separated, or both. A domain with no port is checked over HTTPS. Separate entries with commas, spaces or new lines. The limit is 1024 checks per run.
 - **Source pods:** one pod per node (default, because a firewall rule applies per worker), all running pods, or pods you pick. One exec per pod and batch runs every check in parallel inside the pod.
 - **Resolved IPs:** domain targets are resolved inside each pod first (with `getent`, `nslookup`, `dig` or `host`), so you see the destination IPs the pod really uses, under each target and in the details, CSV and firewall request text. When pods get different answers it says so; curl checks also show the IP they connected to.

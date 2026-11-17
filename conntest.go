@@ -550,7 +550,9 @@ type ConnJob struct {
 	NS       string
 	Started  time.Time
 	Finished time.Time
-	State    string // preparing | running | done | cancelled
+	State    string // preparing | running | done | cancelled | failed
+	Prep     string // what "preparing" is doing (probe DaemonSet)
+	Err      string // why it failed
 	Total    int
 	Done     int
 	Sources  []ConnSource
@@ -603,7 +605,7 @@ func (m *connManager) get(id string) *ConnJob {
 
 type connRequest struct {
 	NS          string   `json:"ns"`
-	PodMode     string   `json:"podMode"` // per-node | all | pick
+	PodMode     string   `json:"podMode"` // daemonset | per-node | all | pick
 	Pods        []string `json:"pods"`
 	Targets     string   `json:"targets"`
 	Ports       string   `json:"ports"`
@@ -946,6 +948,12 @@ func (j *ConnJob) snapshot(from int, full bool) map[string]any {
 	if !j.Finished.IsZero() {
 		out["finished"] = j.Finished
 	}
+	if j.Prep != "" {
+		out["prep"] = j.Prep
+	}
+	if j.Err != "" {
+		out["error"] = j.Err
+	}
 	if full {
 		out["checks"] = j.Checks
 		out["policy"] = j.Policy
@@ -975,7 +983,9 @@ func (s *Server) connRoutes(mux *http.ServeMux) {
 			sample = append(sample, c.Label)
 		}
 		resp := map[string]any{"count": len(checks), "sample": sample, "errors": errs, "limit": connMaxChecks}
-		if req.NS != "" {
+		if req.PodMode == "daemonset" {
+			resp["probeDS"] = true
+		} else if req.NS != "" {
 			if c, _, ok := s.cluster(w, r); ok {
 				if pods, err := c.FreshPods(r.Context(), req.NS); err == nil {
 					if src, err := pickSources(pods, req); err == nil {
@@ -1022,6 +1032,25 @@ func (s *Server) connRoutes(mux *http.ServeMux) {
 		}
 		if len(checks) == 0 {
 			writeErr(w, 400, errors.New("enter at least one target"))
+			return
+		}
+		if req.PodMode == "daemonset" { // a temporary DaemonSet: one probe pod per node
+			if !validDNSLabel(req.NS) {
+				writeErr(w, 400, errors.New("pick a namespace at the top"))
+				return
+			}
+			if len(checks)*connMaxSources > connMaxProbes*4 {
+				writeErr(w, 400, fmt.Errorf("%d checks is too many for a test from every node: narrow the targets", len(checks)))
+				return
+			}
+			tmpl, _ := s.probeTemplate()
+			j := &ConnJob{ID: newJobID(), owner: reqUserID(r), Ctx: r.URL.Query().Get("ctx"), NS: req.NS, Started: time.Now(), State: "preparing",
+				Checks: checks, PolicyOn: req.PolicyCheck, Timeout: req.Timeout, Parallel: req.Parallel, Sources: []ConnSource{}, Prep: "Creating the probe DaemonSet…"}
+			ctx, cancel := context.WithCancel(context.Background())
+			j.cancel = cancel
+			connMgr.add(j)
+			go j.runWithProbeDS(ctx, c, snap, tmpl)
+			writeJSON(w, 200, map[string]any{"id": j.ID})
 			return
 		}
 		pods, err := c.FreshPods(r.Context(), req.NS)

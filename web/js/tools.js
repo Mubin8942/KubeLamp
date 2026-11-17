@@ -58,15 +58,31 @@ async function ctSend(method, path, body) {
   return d;
 }
 
+async function openProbeYaml() {
+  let d;
+  try { d = await api('tools/probe-template'); } catch (e) { return toast(e.message, 'err'); }
+  const edit = d.canEdit && !(S.info && S.info.readOnly);
+  const res = await modal({
+    title: 'Probe DaemonSet', wide: true,
+    body: `<p>KubeLamp starts this DaemonSet for a test (one pod on every node) and deletes it afterwards. It sets the name, namespace and labels itself.
+      ${edit ? 'Change the image here if your nodes pull from an internal registry.' : 'Only admins can change it.'}${d.default ? '' : ' <b>Changed by an admin.</b>'}</p>
+      <textarea id="pdsYaml" class="pds-yaml" rows="22" wrap="off" spellcheck="false" ${edit ? '' : 'readonly'}>${esc(d.yaml)}</textarea>`,
+    actions: edit ? [{ label: 'Cancel', value: null }, ...(d.default ? [] : [{ label: 'Reset to default', kind: 'danger', value: 'reset' }]),
+      { label: 'Save', kind: 'primary', submit: true, run: async dlg => { await send('PUT', 'tools/probe-template', { yaml: $('#pdsYaml', dlg).value }); return 'saved'; } }]
+      : [{ label: 'Close', kind: 'primary', value: null, submit: true }],
+  });
+  if (res === 'reset') { try { await send('PUT', 'tools/probe-template', { yaml: '' }); toast('Probe DaemonSet reset to the default'); } catch (e) { toast(e.message, 'err'); } }
+  else if (res === 'saved') toast('Probe DaemonSet saved');
+}
+
 async function viewConnTest(route) {
   const ctx = route.ctx;
-  const key = 'kl.conntest.' + ctx, jobKey = 'kl.conntest.job.' + ctx;
+  const key = 'kl.conntest2.' + ctx, jobKey = 'kl.conntest.job.' + ctx;
   const roOnly = !!(S.info && S.info.readOnly);
   const saved = (() => { try { return JSON.parse(localStorage.getItem(key) || '{}'); } catch { return {}; } })();
-  const F = Object.assign({ ns: S.ns || '', mode: 'per-node', pods: [], targets: '', ports: '', policy: true, timeout: 3, parallel: 8 }, saved);
-  let nss = [], allPods = [], valid = false;
-  try { nss = await api('namespaces?ctx=' + enc(ctx)); } catch {}
-  if (!F.ns || !nss.some(n => n.name === F.ns)) F.ns = (S.ns && nss.some(n => n.name === S.ns) ? S.ns : (nss.find(n => n.pods) || nss[0] || {}).name) || '';
+  const F = Object.assign({ mode: 'daemonset', pods: [], targets: '', ports: '', policy: true, timeout: 3, parallel: 8 }, saved);
+  F.ns = S.ns || ''; // the namespace picked at the top
+  let allPods = [], valid = false;
 
   main.innerHTML = `
     <div class="page-head"><div><div class="crumbs"><a href="${ctxPath(ctx)}/overview">${esc(shortName(ctx))}</a> / <a href="${ctxPath(ctx)}/tools">Tools</a></div>
@@ -75,11 +91,10 @@ async function viewConnTest(route) {
     ${roOnly ? `<div class="banner err"><b>Read-only mode.</b><span>This tool runs commands inside pods, so it is disabled.</span></div>` : ''}
     <div class="card ct-form">
       <div class="ct-row">
-        <label class="ct-f"><span>Namespace</span><select id="ctNs">${nss.map(n => `<option value="${esc(n.name)}" ${n.name === F.ns ? 'selected' : ''}>${esc(n.name)}${n.pods ? ` (${n.pods})` : ''}</option>`).join('')}</select></label>
-        <div class="ct-f"><span>Test from</span>
-          <div class="seg" id="ctMode">
-            <button type="button" data-m="per-node">One pod per node</button><button type="button" data-m="all">All running pods</button><button type="button" data-m="pick">Pick pods</button>
-          </div></div>
+        <div class="ct-f"><span>Test from <small class="muted">namespace <b>${F.ns ? esc(F.ns) : '— pick one at the top'}</b></small></span>
+          <div class="ct-modes"><div class="seg" id="ctMode">
+            <button type="button" data-m="daemonset" title="Starts a small temporary DaemonSet in this namespace (one pod on every node), tests from it, then deletes it">Probe DaemonSet</button><button type="button" data-m="per-node">One pod per node</button><button type="button" data-m="all">All running pods</button><button type="button" data-m="pick">Pick pods</button>
+          </div><button type="button" class="btn sm ghost" id="ctYaml" title="The DaemonSet KubeLamp starts for the test">${ICON.edit}DaemonSet YAML</button></div></div>
       </div>
       <div id="ctPick" class="ct-pick" hidden></div>
       <label class="ct-f"><span>Targets <small class="muted">IPs, ranges, CIDR, domains, URLs. Separate with commas, spaces or new lines</small></span>
@@ -99,13 +114,14 @@ async function viewConnTest(route) {
   // ---- form state
   const persist = () => { try { localStorage.setItem(key, JSON.stringify(F)); } catch {} };
   const read = () => {
-    F.ns = $('#ctNs').value; F.targets = $('#ctTargets').value; F.ports = $('#ctPorts').value;
+    F.targets = $('#ctTargets').value; F.ports = $('#ctPorts').value;
     F.policy = $('#ctPol').checked; F.timeout = +$('#ctTimeout').value; F.parallel = +$('#ctPar').value;
     persist();
   };
   const body = () => ({ ns: F.ns, podMode: F.mode, pods: F.pods, targets: F.targets, ports: F.ports, timeout: F.timeout, parallel: F.parallel, policyCheck: F.policy });
   const drawMode = () => {
     $$('#ctMode button').forEach(b => b.classList.toggle('on', b.dataset.m === F.mode));
+    $('#ctYaml').hidden = F.mode !== 'daemonset';
     const pk = $('#ctPick');
     pk.hidden = F.mode !== 'pick';
     if (F.mode === 'pick') {
@@ -120,17 +136,22 @@ async function viewConnTest(route) {
     const seq = ++prevSeq;
     const box = $('#ctPrev'), run = $('#ctRun');
     if (!box) return;
+    if (!F.ns) { box.className = 'ct-prev err'; box.textContent = 'Pick a namespace in the top bar: the test runs from pods in that namespace.'; valid = false; run.disabled = true; return; }
     if (!F.targets.trim()) { box.className = 'ct-prev muted'; box.textContent = 'Enter targets to see how many checks will run.'; valid = false; run.disabled = true; return; }
     let d;
     try { d = await ctSend('POST', 'tools/conntest/preview?ctx=' + enc(ctx), body()); } catch (e) { if (seq === prevSeq) { box.className = 'ct-prev err'; box.textContent = e.message; run.disabled = true; } return; }
     if (seq !== prevSeq || !$('#ctPrev')) return;
     if (F.mode !== 'all' && d.sources === undefined && !d.sourceErr) { /* keep */ }
     const pods = (d.sources || []).length;
-    valid = !d.errors.length && d.count > 0 && pods > 0 && !roOnly;
+    valid = !d.errors.length && d.count > 0 && (pods > 0 || d.probeDS) && !roOnly;
     run.disabled = !valid || (T.job && T.job.state !== 'done' && T.job.state !== 'cancelled');
     if (d.errors.length) {
       box.className = 'ct-prev err';
       box.innerHTML = d.errors.map(e => `<div><span class="mono">${esc(e.token)}</span>: ${esc(e.msg)}</div>`).join('');
+    } else if (d.probeDS) {
+      box.className = 'ct-prev';
+      box.innerHTML = `<b>${d.count}</b> check${d.count === 1 ? '' : 's'} from <b>every node</b>: KubeLamp starts a temporary DaemonSet in <b>${esc(F.ns)}</b>, tests from its pods, then deletes it.` +
+        `<div class="chips" style="margin-top:6px">${d.sample.map(s => `<span class="chip">${esc(s)}</span>`).join('')}${d.count > d.sample.length ? `<span class="muted">+${d.count - d.sample.length} more</span>` : ''}</div>`;
     } else {
       box.className = 'ct-prev';
       const nodes = new Set((d.sources || []).map(s => s.node)).size;
@@ -141,6 +162,7 @@ async function viewConnTest(route) {
   }
   async function loadPods() {
     allPods = [];
+    if (!F.ns) return drawMode();
     try { const d = await ctSend('POST', 'tools/conntest/preview?ctx=' + enc(ctx), { ns: F.ns, podMode: 'all', targets: '', ports: '' }); allPods = d.sources || []; } catch {}
     F.pods = F.pods.filter(p => allPods.some(a => a.pod === p));
     drawMode();
@@ -149,7 +171,7 @@ async function viewConnTest(route) {
   // ---- job state and results
   const T = { openPods: new Set(), job: null, sources: [], checks: [], res: new Map(), policy: {}, warnings: [], next: 0, view: 'target', onlyProblems: false, limit: 200, timer: 0 };
   const rkey = (si, ci) => si * 100000 + ci;
-  const jobDone = () => !T.job || T.job.state === 'done' || T.job.state === 'cancelled';
+  const jobDone = () => !T.job || ['done', 'cancelled', 'failed'].includes(T.job.state);
   async function start() {
     read();
     $('#ctRun').disabled = true;
@@ -253,7 +275,7 @@ async function viewConnTest(route) {
     const openPol = all.filter(([si, ci]) => { const r = T.res.get(rkey(si, ci)); const p = pv(si, ci); return r && r.state === 'open' && p && p.s === 'blocked'; }).length;
     const nFail = (totals.timeout || 0) + (totals.unreachable || 0);
     const nRetry = nFail + (totals.dns || 0) + (totals.error || 0);
-    const stateName = { preparing: 'Preparing…', running: 'Running…', done: 'Finished', cancelled: 'Cancelled' }[j.state] || j.state;
+    const stateName = { preparing: 'Preparing…', running: 'Running…', done: 'Finished', cancelled: 'Cancelled', failed: 'Failed' }[j.state] || j.state;
     let rowsHtml = '';
     if (T.view === 'target') {
       const rows = T.checks.map((c, ci) => ({ c, ci, counts: countsFor(T.sources.map((_, si) => [si, ci])) }))
@@ -280,6 +302,8 @@ async function viewConnTest(route) {
     }
     out.innerHTML = `
       <div class="card ct-res">
+        ${j.error ? `<div class="banner err" style="margin-bottom:10px"><b>Test failed.</b><span>${esc(j.error)}</span></div>` : ''}
+        ${j.prep && j.state === 'preparing' ? `<div class="ct-prep"><span class="spin"></span>${esc(j.prep)}</div>` : ''}
         <div class="card-head"><h3>${esc(stateName)}</h3><span class="cap">${j.done}/${j.total} probes · ${nC} check${nC === 1 ? '' : 's'} from ${nS} pod${nS === 1 ? '' : 's'}${j.timeout ? ` · ${j.timeout}s timeout` : ''}</span>
           <span class="right ct-tools">
             <div class="seg"><button type="button" data-v="target" class="${T.view === 'target' ? 'on' : ''}">By target</button><button type="button" data-v="pod" class="${T.view === 'pod' ? 'on' : ''}">By pod</button></div>
@@ -369,7 +393,7 @@ async function viewConnTest(route) {
   $$('#ctMode button').forEach(b => b.addEventListener('click', () => { F.mode = b.dataset.m; persist(); drawMode(); schedulePreview(); }));
   ['#ctTargets', '#ctPorts'].forEach(s => $(s).addEventListener('input', () => { read(); schedulePreview(); }));
   ['#ctPol', '#ctTimeout', '#ctPar'].forEach(s => $(s).addEventListener('change', read));
-  $('#ctNs').addEventListener('change', async () => { read(); F.pods = []; await loadPods(); schedulePreview(); });
+  $('#ctYaml').addEventListener('click', openProbeYaml);
   $('#ctRun').addEventListener('click', start);
   $('#ctCancel').addEventListener('click', async () => { try { await ctSend('DELETE', 'tools/conntest/' + T.job.id); } catch (e) { toast(e.message, 'err'); } });
   drawMode();

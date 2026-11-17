@@ -528,6 +528,10 @@ func (c *cluster) handler(auth func(*http.Request) bool, allow func(path string)
 		}
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/__probeds" { // test counter, no credentials needed
+			c.generic(w, r)
+			return
+		}
 		if !auth(r) {
 			w.WriteHeader(401)
 			writeJSON(w, obj{"kind": "Status", "message": "Unauthorized", "code": 401})

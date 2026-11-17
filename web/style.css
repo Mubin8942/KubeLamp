@@ -895,3 +895,10 @@ body:has(.toasts:not(:empty)) .term-min { bottom: 70px; }
 tr:hover .ip-edit, .ip-edit:focus-visible { opacity: 1; }
 .ip-set { height: 26px; color: var(--accent-ink); }
 .ip-set svg, .ip-edit svg { width: 13px; height: 13px; }
+
+/* connectivity tester: probe DaemonSet */
+.ct-modes { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.ct-modes .btn svg { width: 13px; height: 13px; }
+.ct-prep { display: flex; gap: 9px; align-items: center; padding: 8px 2px 12px; color: var(--ink-2); }
+textarea.pds-yaml { width: 100%; font: 12.5px/1.5 var(--mono); resize: vertical; white-space: pre; overflow-wrap: normal; overflow-x: auto; }
+.dlg.wide:has(.pds-yaml) { width: 720px; }

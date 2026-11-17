@@ -476,9 +476,19 @@ func (c *cluster) generic(w http.ResponseWriter, r *http.Request) bool {
 		writeJSON(w, obj{"count": dfExecs.Load()})
 		return true
 	}
+	if r.URL.Path == "/__probeds" {
+		probeDS.Lock()
+		live := len(probeDS.m)
+		probeDS.Unlock()
+		writeJSON(w, obj{"created": probeDS.created.Load(), "deleted": probeDS.deleted.Load(), "live": live})
+		return true
+	}
 	rt, ok := parseRoute(r.URL.Path)
 	if !ok {
 		return false
+	}
+	if rt.group == "apps" && rt.res == "daemonsets" && rt.ns != "" && c.probeDaemonSets(w, r, rt) {
+		return true
 	}
 	// pod exec / single pod / pod delete
 	if rt.group == "" && rt.res == "pods" && rt.name != "" {

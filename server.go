@@ -463,6 +463,7 @@ func (s *Server) routes() http.Handler {
 	s.routeRoutes(mux)
 	s.podNodeRoutes(mux)
 	s.nodeIPRoutes(mux)
+	s.probeRoutes(mux)
 	s.terminalRoutes(mux)
 	s.pvcRoutes(mux)
 	s.overviewRoutes(mux)
