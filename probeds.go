@@ -321,7 +321,7 @@ func (j *ConnJob) runWithProbeDS(ctx context.Context, c *Cluster, snap *Snapshot
 	j.pods = ready
 	j.Sources = make([]ConnSource, 0, len(ready))
 	for _, p := range ready {
-		j.Sources = append(j.Sources, sourceView(p))
+		j.Sources = append(j.Sources, j.source(p))
 	}
 	j.Total = len(ready) * len(j.Checks)
 	j.Prep = ""

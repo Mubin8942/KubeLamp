@@ -281,7 +281,7 @@ async function viewConnTest(route) {
       const rows = T.checks.map((c, ci) => ({ c, ci, counts: countsFor(T.sources.map((_, si) => [si, ci])) }))
         .filter(r => !T.onlyProblems || Object.keys(r.counts).some(s => !['open', 'refused', 'tls'].includes(s)) || (j.policyCheck && T.sources.some((_, si) => { const p = pv(si, r.ci); return p && p.s === 'blocked'; })));
       const shown = rows.slice(0, T.limit);
-      rowsHtml = `<div class="ct-scroll"><table class="ct-matrix"><thead><tr><th class="sticky">Target</th><th>Result</th>${T.sources.map((s, si) => `<th class="src" title="${esc(`${s.pod}\nnode ${s.node}\npod IP ${s.podIP}\nhost IP ${s.hostIP}${s.hostNetwork ? '\nhost network' : ''}`)}"><span>${esc(s.node || s.pod)}</span>${s.hostNetwork ? '<small>hostNet</small>' : ''}${s.state === 'noshell' || s.state === 'notool' ? `<small>${esc(s.state)}</small>` : ''}</th>`).join('')}</tr></thead><tbody>
+      rowsHtml = `<div class="ct-scroll"><table class="ct-matrix"><thead><tr><th class="sticky">Target</th><th>Result</th>${T.sources.map((s, si) => `<th class="src" title="${esc(`${s.pod}\nnode ${s.node}${s.nodeIP ? `\nnode IP ${s.nodeIP}` : ''}\ninternal IP ${s.hostIP}\npod IP ${s.podIP}${s.hostNetwork ? '\nhost network' : ''}`)}"><span>${esc(s.node || s.pod)}</span>${s.hostNetwork ? '<small>hostNet</small>' : ''}${s.state === 'noshell' || s.state === 'notool' ? `<small>${esc(s.state)}</small>` : ''}</th>`).join('')}</tr></thead><tbody>
         ${shown.map(r => `<tr><td class="sticky mono">${esc(r.c.label)}${ipsNote(r.ci)}</td><td class="ct-verdict">${chipsHtml(r.counts)}${policyNote(r.ci)}</td>${T.sources.map((_, si) => `<td>${cellHtml(si, r.ci)}</td>`).join('')}</tr>`).join('')}
         </tbody></table></div>${rows.length > shown.length ? `<div style="padding:10px"><button class="btn sm" id="ctMore">Show ${Math.min(300, rows.length - shown.length)} more of ${rows.length - shown.length}</button></div>` : ''}
         ${!rows.length ? '<div class="muted" style="padding:14px">Nothing to show with this filter.</div>' : ''}`;
@@ -295,7 +295,7 @@ async function viewConnTest(route) {
           const rank = { timeout: 0, unreachable: 1, dns: 2, error: 3, notool: 4, noshell: 5, refused: 6, tls: 7, open: 8 };
           const list = (T.onlyProblems ? bad : done).slice().sort((a, b) => (rank[a.r.state] ?? 9) - (rank[b.r.state] ?? 9) || a.ci - b.ci);
           return `<tr><td class="sticky mono">${esc(s.pod)}${s.container ? `<div class="muted">${esc(s.container)}${s.tool ? ' · ' + esc(s.tool) : ''}</div>` : ''}</td>
-            <td><div>${esc(s.node)}</div><div class="muted mono">pod ${esc(s.podIP)} · host ${esc(s.hostIP)}${s.hostNetwork ? ' · host network' : ''}</div></td>
+            <td><div>${esc(s.node)}</div><div class="muted mono">${s.nodeIP ? `node ${esc(s.nodeIP)} · ` : ''}internal ${esc(s.hostIP)} · pod ${esc(s.podIP)}${s.hostNetwork ? ' · host network' : ''}</div></td>
             <td class="ct-verdict">${chipsHtml(counts)}${list.length ? `<details class="ct-det" ${T.openPods.has(si) ? 'open' : ''} data-si="${si}"><summary>${T.onlyProblems ? `${bad.length} not open` : `All ${done.length} result${done.length === 1 ? '' : 's'}${bad.length ? ` · ${bad.length} not open` : ' · all reachable'}`}</summary>${list.slice(0, 80).map(x => { const m = CT_STATES[x.r.state] || CT_STATES.error; return `<div class="ct-detrow"><button class="linkish" data-s="${si}" data-c="${x.ci}">${esc(x.c.label)}</button>${Array.isArray(x.r.ips) && x.r.ips.length ? ` <span class="muted mono">(${esc(ipList(x.r.ips, 3))})</span>` : ''} <span class="ct-st ${m.cls}">${esc(m.label)}${x.r.http ? ' · HTTP ' + x.r.http : ''}</span></div>`; }).join('')}${list.length > 80 ? `<div class="muted">+${list.length - 80} more (use the CSV)</div>` : ''}</details>` : ''}</td>
             <td>${(s.policies || []).length ? (s.policies || []).map(n => `<span class="chip">${esc(n)}</span>`).join(' ') : `<span class="muted">${j.policyCheck ? 'none' : 'policy check is off'}</span>`}</td></tr>`;
         }).join('')}</tbody></table></div>`;
@@ -344,7 +344,7 @@ async function viewConnTest(route) {
         ${row('Tool', r && r.tool ? esc(r.tool) + (r.ms ? ` · ${r.ms} ms` : '') : '')}
         ${row('HTTP status', r && r.http ? r.http : '')}
         ${row('From pod', `<span class="mono">${esc(s.pod)}</span>${s.container ? ' · ' + esc(s.container) : ''}`)}
-        ${row('Node', esc(s.node))}${row('Pod IP', `<span class="mono">${esc(s.podIP)}</span>`)}${row('Host IP', `<span class="mono">${esc(s.hostIP)}</span>`)}
+        ${row('Node', esc(s.node))}${row('Pod IP', `<span class="mono">${esc(s.podIP)}</span>`)}${s.nodeIP ? row('Node IP', `<span class="mono">${esc(s.nodeIP)}</span>`) : ''}${row('Internal IP', `<span class="mono">${esc(s.hostIP)}</span>`)}
         ${row('Network policy', p ? `<span class="ct-chip ${p.s === 'blocked' ? 'crit' : p.s === 'allowed' ? 'good' : 'warn'}">${esc(p.s)}</span> ${esc(p.w || '')}` : (T.job.policyCheck ? 'No policy applies to this pod’s egress.' : 'Not checked.'))}
         ${row('Note', r && r.state === 'open' && p && p.s === 'blocked' ? 'The connection worked although the policy objects say it should be blocked. The policy may not be enforced by this cluster’s network plugin, or the verdict does not fit this target (for example traffic to a Service IP is matched after translation).' : '')}
         ${row('Policies on this pod', (s.policies || []).map(n => `<span class="chip">${esc(n)}</span>`).join(' '))}
@@ -359,24 +359,27 @@ async function viewConnTest(route) {
   }
   async function copyFirewall() {
     const fl = failing();
-    const lines = fl.map(x => `SRC node=${x.s.node} hostIP=${x.s.hostIP} podIP=${x.s.podIP} pod=${x.s.pod}  ->  ${x.c.label}${Array.isArray(x.r.ips) && x.r.ips.length ? ` [${x.r.ips.join(', ')}]` : ''}  ${x.r.state.toUpperCase()}${x.p && x.p.s === 'blocked' ? '  (network policy also blocks it)' : ''}`);
+    const lines = fl.map(x => `SRC node=${x.s.node} nodeIP=${x.s.nodeIP || x.s.hostIP}${x.s.nodeIP ? ` internalIP=${x.s.hostIP}` : ''} podIP=${x.s.podIP} pod=${x.s.pod}  ->  ${x.c.label}${Array.isArray(x.r.ips) && x.r.ips.length ? ` [${x.r.ips.join(', ')}]` : ''}  ${x.r.state.toUpperCase()}${x.p && x.p.s === 'blocked' ? '  (network policy also blocks it)' : ''}`);
     const dst = [...new Set(fl.flatMap(x => Array.isArray(x.r.ips) && x.r.ips.length ? x.r.ips.map(ip => `${ip}:${x.c.port}`) : (/^[\d.]+$|:/.test(x.c.host) ? [`${x.c.host}:${x.c.port}`] : [])))];
-    const srcs = [...new Set(fl.map(x => x.s.hostIP))];
+    const srcs = [...new Set(fl.map(x => x.s.nodeIP || x.s.hostIP))];
     const txt = `Connectivity test from namespace ${T.job.ns} (cluster ${shortName(ctx)}), ${new Date().toISOString()}\nTimeout ${T.job.timeout}s. Failing connections:\n` + lines.join('\n') +
       (dst.length ? `\n\nSource node IPs: ${srcs.join(', ')}\nDestination IP:port: ${dst.join(', ')}` : '');
     try { await navigator.clipboard.writeText(txt); toast('Copied ' + lines.length + ' line' + (lines.length === 1 ? '' : 's')); } catch { toast('Could not copy: select the text from the CSV instead', 'err'); }
   }
+  // CSV for spreadsheets and firewall tickets: one row per node × target
+  const RESULT_TEXT = { open: 'Open', refused: 'Refused (reached, port closed)', tls: 'Open (TLS error)', timeout: 'Timeout (blocked or no answer)',
+    unreachable: 'Unreachable (no route)', dns: 'DNS: name not found', error: 'Error', notool: 'No test tool in pod', noshell: 'No shell in pod', pending: 'Not run' };
+  const POLICY_TEXT = { allowed: 'Allowed', blocked: 'Blocked', unknown: 'Unknown', none: 'No policy' };
   function downloadCsv() {
-    const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-    const rows = [['target', 'resolved_ips', 'connected_ip', 'pod', 'node', 'pod_ip', 'host_ip', 'result', 'tool', 'ms', 'http', 'detail', 'policy', 'policy_detail'].map(q).join(',')];
+    const rows = [['Target', 'Result', 'Node', 'Node IP (external)', 'Node IP (internal)', 'Pod', 'Pod IP', 'Tool', 'Time (ms)', 'HTTP status', 'Details',
+      'Resolved IPs', 'Connected IP', 'Network policy', 'Policy details']];
     T.sources.forEach((s, si) => T.checks.forEach((c, ci) => {
       const r = T.res.get(rkey(si, ci)) || {}, p = pv(si, ci) || {};
-      rows.push([c.label, Array.isArray(r.ips) ? r.ips.join(' ') : '', r.via, s.pod, s.node, s.podIP, s.hostIP, r.state || 'pending', r.tool, r.ms, r.http, r.detail, p.s, p.w].map(q).join(','));
+      rows.push([c.label, RESULT_TEXT[r.state || 'pending'] || r.state, s.node, s.nodeIP || '', s.hostIP, s.pod, s.podIP, r.tool || '', r.ms ?? '', r.http || '',
+        r.detail || '', Array.isArray(r.ips) ? r.ips.join(' ') : '', r.via || '', POLICY_TEXT[p.s] || p.s || '', p.w || '']);
     }));
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([rows.join('\n')], { type: 'text/csv' }));
-    a.download = `connectivity-${T.job.ns}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '')}.csv`;
-    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-');
+    downloadText(`connectivity-${shortName(ctx).replace(/[^\w.-]+/g, '_')}-${T.job.ns}-${stamp}.csv`, toCSV(rows), 'text/csv');
   }
   function rerunFailed() {
     const bad = [];

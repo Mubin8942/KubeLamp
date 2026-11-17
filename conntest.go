@@ -522,6 +522,7 @@ type ConnSource struct {
 	Node        string   `json:"node"`
 	PodIP       string   `json:"podIP"`
 	HostIP      string   `json:"hostIP"`
+	NodeIP      string   `json:"nodeIP,omitempty"` // the node's external IP (admin-set, node or Rancher), if known
 	HostNetwork bool     `json:"hostNetwork,omitempty"`
 	State       string   `json:"state"` // pending | running | done | noshell | notool | error | cancelled
 	Tool        string   `json:"tool,omitempty"`
@@ -567,6 +568,16 @@ type ConnJob struct {
 	mu     sync.Mutex
 	cancel context.CancelFunc
 	pods   []*Pod
+	extIP  func(node string) string // node → external IP ("" if unknown)
+}
+
+// source makes the view of a source pod, with its node's external IP.
+func (j *ConnJob) source(p *Pod) ConnSource {
+	v := sourceView(p)
+	if j.extIP != nil {
+		v.NodeIP = j.extIP(p.Spec.NodeName)
+	}
+	return v
 }
 
 type connManager struct {
@@ -1045,7 +1056,8 @@ func (s *Server) connRoutes(mux *http.ServeMux) {
 			}
 			tmpl, _ := s.probeTemplate()
 			j := &ConnJob{ID: newJobID(), owner: reqUserID(r), Ctx: r.URL.Query().Get("ctx"), NS: req.NS, Started: time.Now(), State: "preparing",
-				Checks: checks, PolicyOn: req.PolicyCheck, Timeout: req.Timeout, Parallel: req.Parallel, Sources: []ConnSource{}, Prep: "Creating the probe DaemonSet…"}
+				Checks: checks, PolicyOn: req.PolicyCheck, Timeout: req.Timeout, Parallel: req.Parallel, Sources: []ConnSource{}, Prep: "Creating the probe DaemonSet…",
+				extIP: s.nodeExternalIPs(r.Context(), c, snap)}
 			ctx, cancel := context.WithCancel(context.Background())
 			j.cancel = cancel
 			connMgr.add(j)
@@ -1072,9 +1084,10 @@ func (s *Server) connRoutes(mux *http.ServeMux) {
 			return
 		}
 		j := &ConnJob{ID: newJobID(), owner: reqUserID(r), Ctx: r.URL.Query().Get("ctx"), NS: req.NS, Started: time.Now(), State: "preparing",
-			Checks: checks, Total: len(src) * len(checks), PolicyOn: req.PolicyCheck, Timeout: req.Timeout, Parallel: req.Parallel, pods: src}
+			Checks: checks, Total: len(src) * len(checks), PolicyOn: req.PolicyCheck, Timeout: req.Timeout, Parallel: req.Parallel, pods: src,
+			extIP: s.nodeExternalIPs(r.Context(), c, snap)}
 		for _, p := range src {
-			j.Sources = append(j.Sources, sourceView(p))
+			j.Sources = append(j.Sources, j.source(p))
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		j.cancel = cancel

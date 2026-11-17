@@ -214,3 +214,27 @@ func (s *Server) podNodeRoutes(mux *http.ServeMux) {
 		writeJSON(w, 200, res)
 	})
 }
+
+// nodeExternalIPs returns a lookup of node → external IP, the same order the Nodes page
+// uses: set by an admin, the node's own ExternalIP, Rancher's.
+func (s *Server) nodeExternalIPs(ctx context.Context, c *Cluster, snap *Snapshot) func(string) string {
+	known := map[string]string{}
+	for _, nd := range snap.Nodes {
+		if a := addrOf(nd); a.external != "" {
+			known[strings.ToLower(nd.Metadata.Name)] = a.external
+		}
+	}
+	if len(snap.Nodes) == 0 {
+		for n, a := range rancherNodeAddrs(ctx, c) {
+			if a.external != "" {
+				known[strings.ToLower(n)] = a.external
+			}
+		}
+	}
+	return func(node string) string {
+		if ip := s.nodeIPs.Lookup(node); ip != "" {
+			return ip
+		}
+		return known[strings.ToLower(node)]
+	}
+}
