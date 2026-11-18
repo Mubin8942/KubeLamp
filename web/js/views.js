@@ -297,8 +297,8 @@ async function viewPodNodes(route, sum, all) {
       { key: 'name', label: 'Node (host name)', cls: 'name', render: n => esc(n.name) },
       { key: 'externalIP', label: 'External IP', sort: n => ipSortKey(n.externalIP), render: extIPCell },
       { key: 'internalIP', label: 'Internal IP', sort: n => ipSortKey(n.internalIP), render: intIPCell },
-      { key: 'pods', label: 'Your pods', num: true, render: n => `<a href="${ctxPath(n.cluster)}/pods?q=${enc(n.name)}" title="Show these pods">${n.running}${n.running !== n.pods ? `<span class="muted"> / ${n.pods}</span>` : ''}</a>` },
-      { key: 'namespaces', label: 'Namespaces', nosort: true, render: n => `<span class="chips">${n.namespaces.slice(0, 4).map(x => `<span class="chip">${esc(x)}</span>`).join('')}${n.namespaces.length > 4 ? `<span class="muted">+${n.namespaces.length - 4}</span>` : ''}</span>` },
+      { key: 'pods', label: 'Your pods', num: true, render: n => !n.pods ? '<span class="muted">0</span>' : `<a href="${ctxPath(n.cluster)}/pods?q=${enc(n.name)}" title="Show these pods">${n.running}${n.running !== n.pods ? `<span class="muted"> / ${n.pods}</span>` : ''}</a>` },
+      { key: 'namespaces', label: 'Namespaces', nosort: true, render: n => !n.namespaces.length ? '<span class="muted">none of your pods run here</span>' : `<span class="chips">${n.namespaces.slice(0, 4).map(x => `<span class="chip">${esc(x)}</span>`).join('')}${n.namespaces.length > 4 ? `<span class="muted">+${n.namespaces.length - 4}</span>` : ''}</span>` },
     );
     const t = table('podnodes', cols, list, { sort: { key: all ? 'cluster' : 'name', dir: 'asc' } });
     $('#nodesBox').innerHTML = (errs.length ? `<div class="banner err" style="margin:0 0 10px"><b>Not loaded.</b><span>${esc(errs.join('; '))}</span></div>` : '')

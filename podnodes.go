@@ -169,6 +169,12 @@ func podNodes(snap *Snapshot, rancher map[string]nodeAddr) PodNodesResult {
 		res.IPSource = "rancher"
 		known = rancher
 	}
+	// nodes the cluster or Rancher lists that none of your pods run on
+	for name := range known {
+		if byName[name] == nil && byName[strings.ToLower(name)] == nil {
+			byName[name] = &PodNode{Name: name, Namespaces: []string{}, PodNames: []string{}}
+		}
+	}
 	for name, pn := range byName {
 		a, ok := known[name]
 		if !ok {
@@ -205,6 +211,7 @@ func (s *Server) podNodeRoutes(mux *http.ServeMux) {
 			rancher = rancherNodeAddrs(r.Context(), c)
 		}
 		res := podNodes(snap, rancher)
+		res.Nodes = s.addListedNodes(res.Nodes)
 		for i := range res.Nodes { // an admin-set external IP wins
 			if ip := s.nodeIPs.Lookup(res.Nodes[i].Name); ip != "" {
 				n := &res.Nodes[i]
@@ -237,4 +244,44 @@ func (s *Server) nodeExternalIPs(ctx context.Context, c *Cluster, snap *Snapshot
 		}
 		return known[strings.ToLower(node)]
 	}
+}
+
+// nodePrefix is a node name without its last part: "stg-w07" → "stg-", the name the
+// cluster gives its nodes. "" when the name has no such part.
+func nodePrefix(name string) string {
+	name = nodeKey(name)
+	i := strings.LastIndexByte(name, '-')
+	if i < 3 {
+		return ""
+	}
+	return name[:i+1]
+}
+
+// addListedNodes adds the nodes from the admin's IP list that are named like this
+// cluster's nodes ("stg-w11" when "stg-w01" is known) but run none of your pods, so
+// every listed node shows, not only those your pods happen to be on.
+func (s *Server) addListedNodes(nodes []PodNode) []PodNode {
+	if s.nodeIPs == nil || len(nodes) == 0 {
+		return nodes
+	}
+	have, prefixes := map[string]bool{}, map[string]bool{}
+	for _, n := range nodes {
+		have[nodeKey(n.Name)] = true
+		if p := nodePrefix(n.Name); p != "" {
+			prefixes[p] = true
+		}
+	}
+	added := false
+	for _, e := range s.nodeIPs.list() {
+		k := nodeKey(e.Host)
+		if !have[k] && prefixes[nodePrefix(k)] {
+			have[k] = true
+			nodes = append(nodes, PodNode{Name: k, Namespaces: []string{}, PodNames: []string{}})
+			added = true
+		}
+	}
+	if added {
+		sort.Slice(nodes, func(i, j int) bool { return nodes[i].Name < nodes[j].Name })
+	}
+	return nodes
 }

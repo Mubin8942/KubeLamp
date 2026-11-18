@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestPodNodes(t *testing.T) {
 	mk := func(ns, name, node, hostIP, phase string) Pod {
@@ -45,5 +48,29 @@ func TestPodNodes(t *testing.T) {
 	}
 	if r := podNodes(&Snapshot{}, nil); r.Nodes == nil || len(r.Nodes) != 0 {
 		t.Error("no pods → empty list, not null")
+	}
+}
+
+func TestAddListedNodes(t *testing.T) {
+	s := &Server{nodeIPs: openNodeIPs(t.TempDir())}
+	_ = s.nodeIPs.set(map[string]string{
+		"stg-w01": "192.0.2.1", "stg-w05": "192.0.2.5", "STG-W11": "192.0.2.11", "stg-w12.example.com": "192.0.2.12",
+		"other-w01": "198.51.100.1", "solo": "198.51.100.2",
+	}, "admin")
+	got := s.addListedNodes([]PodNode{{Name: "stg-w01", Pods: 3}, {Name: "stg-w02", Pods: 1}})
+	var names []string
+	for _, n := range got {
+		names = append(names, n.Name)
+	}
+	if strings.Join(names, ",") != "stg-w01,stg-w02,stg-w05,stg-w11,stg-w12" {
+		t.Errorf("got %v: want the listed nodes named like this cluster's, once each", names)
+	}
+	if got := s.addListedNodes(nil); len(got) != 0 {
+		t.Errorf("no pods → nothing to match against: %v", got)
+	}
+	// nodes from Rancher's list are shown even without your pods
+	res := podNodes(&Snapshot{}, map[string]nodeAddr{"stg-w09": {internal: "10.0.0.9"}})
+	if len(res.Nodes) != 1 || res.Nodes[0].Name != "stg-w09" || res.Nodes[0].InternalIP != "10.0.0.9" || res.Nodes[0].Pods != 0 {
+		t.Errorf("rancher-only node: %+v", res.Nodes)
 	}
 }
