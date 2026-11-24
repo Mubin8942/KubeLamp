@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/mail"
 	"net/url"
@@ -449,6 +450,7 @@ func (s *Server) alertRoutes(mux *http.ServeMux) {
 			return
 		}
 		ch.Updated, ch.UpdatedBy = e.now(), who(r)
+		log.Printf("alerts: %s settings saved by %s", kind, ch.UpdatedBy)
 		e.mu.Lock()
 		e.ch = ch
 		err = e.st.save("channels.json", e.ch)
@@ -587,6 +589,10 @@ func checkSMS(c *SMSConfig) error {
 	}
 	if !contains([]string{"none", "basic", "wsse"}, c.Auth) {
 		return errors.New("authentication must be none, basic or wsse")
+	}
+	c.Sender = strings.TrimSpace(c.Sender)
+	if c.Enabled && c.Sender == "" && strings.Contains(c.Body+c.URL+c.Headers, "{{sender}}") {
+		return errors.New("Sender is empty but the request uses {{sender}}: fill in Sender (the senderAddress your gateway expects)")
 	}
 	c.WSSENonce, c.WSSECreated = strings.TrimSpace(c.WSSENonce), strings.TrimSpace(c.WSSECreated)
 	if strings.ContainsAny(c.WSSENonce+c.WSSECreated+c.WSSEDigest, "\r\n\"") {

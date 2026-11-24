@@ -100,6 +100,14 @@ func newAlertEngine(srv *Server, dataDir string) (*AlertEngine, error) {
 	}
 	e.silences = sf.Silences
 	e.st.load("channels.json", &e.ch)
+	on := 0
+	for _, r := range e.rules {
+		if r.Enabled {
+			on++
+		}
+	}
+	log.Printf("alerts: %d rules (%d on), SMS %s, email %s; checked every %s", len(e.rules), on, onOff(e.ch.SMS.Enabled && e.ch.SMS.URL != ""),
+		onOff(e.ch.Email.Enabled && e.ch.Email.Host != ""), alertTick)
 	go e.worker()
 	return e, nil
 }
@@ -226,6 +234,13 @@ func (e *AlertEngine) apply(r *AlertRule, res evalResult, now time.Time) ([]Hist
 	st := ruleStatus{Checked: now, Matches: len(res.hits)}
 	if res.err != nil {
 		st.Err, st.NoData, st.Matches = res.err.Error(), errors.As(res.err, &nd), 0
+	}
+	if prev := e.status[r.ID]; prev.Err != st.Err {
+		if st.Err != "" {
+			log.Printf("alerts: rule %q cannot be checked: %s", r.Name, st.Err)
+		} else if prev.Err != "" {
+			log.Printf("alerts: rule %q can be checked again", r.Name)
+		}
 	}
 	e.status[r.ID] = st
 	if res.err != nil {
@@ -469,4 +484,11 @@ func sameCheck(a, b *AlertRule) bool {
 	return a.Cluster == b.Cluster && a.Condition == b.Condition && a.Threshold == b.Threshold && a.Window == b.Window &&
 		a.Match == b.Match && a.Kind == b.Kind && a.Workload == b.Workload && a.Labels == b.Labels &&
 		strings.Join(a.Namespaces, ",") == strings.Join(b.Namespaces, ",") && a.Owner == b.Owner
+}
+
+func onOff(b bool) string {
+	if b {
+		return "on"
+	}
+	return "off"
 }

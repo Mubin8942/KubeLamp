@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -923,3 +924,41 @@ func TestChannelDigestWriteOnly(t *testing.T) {
 		t.Errorf("clearDigest forgets it: %s", b)
 	}
 }
+
+func TestSMSLogMasksSecrets(t *testing.T) {
+	te := newTestEngine(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(500) }))
+	defer srv.Close()
+	var buf strings.Builder
+	var mu sync.Mutex
+	log.SetOutput(writerFunc(func(p []byte) (int, error) { mu.Lock(); defer mu.Unlock(); return buf.WriteString(string(p)) }))
+	defer log.SetOutput(os.Stderr)
+	p := presetByID("sdp")
+	cfg := SMSConfig{Enabled: true, URL: srv.URL + "/x", Method: p["method"], ContentType: p["contentType"], Auth: "wsse", Sender: "MyAlert",
+		Username: mustSeal(t, te, "gw-user"), Password: mustSeal(t, te, "Sup3r-Secret-Pw"), Headers: p["headers"], Body: p["body"],
+		WSSENonce: "n1", WSSECreated: "c1", WSSEDigest: mustSeal(t, te, "DigestValueBase64==")}
+	err := te.sendSMS(cfg, "8801000000001", "hello")
+	if err == nil || !strings.Contains(err.Error(), "500") || !strings.Contains(err.Error(), "no error text") {
+		t.Errorf("error: %v", err)
+	}
+	mu.Lock()
+	out := buf.String()
+	mu.Unlock()
+	for _, want := range []string{"> POST " + srv.URL + "/x", `> X-Wsse: UsernameToken Username="gw-user", PasswordDigest="Dige…(19 chars)", Nonce="n1", Created="c1"`,
+		`> body: {"outboundSMSMessageRequest":{"address":["8801000000001"],"senderAddress":"MyAlert"`, "gateway answered 500 Internal Server Error", "response body: (empty)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "DigestValueBase64") || strings.Contains(out, "Sup3r-Secret-Pw") {
+		t.Errorf("secrets in the log:\n%s", out)
+	}
+	bad := SMSConfig{Enabled: true, URL: "https://x", Body: `{"s":"{{sender}}"}`}
+	if err := checkSMS(&bad); err == nil || !strings.Contains(err.Error(), "Sender is empty") {
+		t.Errorf("empty sender: %v", err)
+	}
+}
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) { return f(p) }

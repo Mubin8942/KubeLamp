@@ -399,6 +399,13 @@ func (st *alertStore) appendHistory(es []HistoryEntry) {
 	if len(es) == 0 {
 		return
 	}
+	for _, e := range es {
+		obj := e.Object
+		if e.Namespace != "" {
+			obj = e.Namespace + "/" + obj
+		}
+		log.Printf("alerts: %-8s rule=%q cluster=%s object=%s: %s", e.Kind, e.RuleName, firstNonEmpty(e.Cluster, "-"), firstNonEmpty(obj, "-"), e.Text)
+	}
 	st.hmu.Lock()
 	defer st.hmu.Unlock()
 	_ = os.MkdirAll(st.dir, 0o700)

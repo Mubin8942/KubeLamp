@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime"
 	"mime/quotedprintable"
 	"net"
@@ -19,6 +20,7 @@ import (
 	"net/mail"
 	"net/smtp"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -217,18 +219,19 @@ func jsonEsc(s string) string {
 
 func noCRLF(s string) string { return strings.NewReplacer("\r", " ", "\n", " ").Replace(s) }
 
-// buildSMSRequest makes the gateway request for one number.
-func (e *AlertEngine) buildSMSRequest(ctx context.Context, cfg SMSConfig, to, text string) (*http.Request, error) {
+// buildSMSRequest makes the gateway request for one number. It also returns the secret
+// values in it, to be masked when the request is logged.
+func (e *AlertEngine) buildSMSRequest(ctx context.Context, cfg SMSConfig, to, text string) (*http.Request, []string, error) {
 	if !cfg.Enabled || cfg.URL == "" {
-		return nil, errors.New("SMS is not set up (Tools → Alerting → Channels)")
+		return nil, nil, errors.New("SMS is not set up (Tools → Alerting → Channels)")
 	}
 	user, err := e.st.box.open(cfg.Username)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	pass, err := e.st.box.open(cfg.Password)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	nonce := make([]byte, 16)
 	_, _ = rand.Read(nonce)
@@ -238,7 +241,7 @@ func (e *AlertEngine) buildSMSRequest(ctx context.Context, cfg SMSConfig, to, te
 	digestS := base64.StdEncoding.EncodeToString(digest[:])
 	if cfg.WSSEDigest != "" { // the fixed values the gateway was set up with
 		if digestS, err = e.st.box.open(cfg.WSSEDigest); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		nonceS, created = cfg.WSSENonce, cfg.WSSECreated
 	}
@@ -265,7 +268,7 @@ func (e *AlertEngine) buildSMSRequest(ctx context.Context, cfg SMSConfig, to, te
 	}
 	req, err := http.NewRequestWithContext(ctx, method, target, body)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if body != nil && cfg.ContentType != "" {
 		req.Header.Set("Content-Type", cfg.ContentType)
@@ -285,33 +288,104 @@ func (e *AlertEngine) buildSMSRequest(ctx context.Context, cfg SMSConfig, to, te
 		}
 		req.Header.Set(k, noCRLF(strings.TrimSpace(renderTpl(v, vars, nil))))
 	}
-	return req, nil
+	return req, []string{pass, digestS}, nil
 }
 
 func (e *AlertEngine) sendSMS(cfg SMSConfig, to, text string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	req, err := e.buildSMSRequest(ctx, cfg, to, text)
+	req, secrets, err := e.buildSMSRequest(ctx, cfg, to, text)
 	if err != nil {
+		log.Printf("alerts: SMS to %s not sent: %v", to, err)
 		return err
 	}
+	logSMSRequest(req, secrets)
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	if cfg.InsecureTLS {
 		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // admin's explicit choice for an internal gateway
 	}
+	start := time.Now()
 	resp, err := (&http.Client{Transport: tr, Timeout: 20 * time.Second}).Do(req)
 	if err != nil {
+		log.Printf("alerts: SMS to %s: gateway not reachable after %s: %v", to, time.Since(start).Round(time.Millisecond), err)
 		return fmt.Errorf("gateway not reachable: %v", err)
 	}
 	defer resp.Body.Close()
-	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+	var hs []string
+	for _, k := range []string{"Content-Type", "Content-Length", "Server", "Date"} {
+		if v := resp.Header.Get(k); v != "" {
+			hs = append(hs, k+": "+v)
+		}
+	}
+	log.Printf("alerts: SMS to %s: gateway answered %s in %s [%s]\n  response body: %s", to, resp.Status, time.Since(start).Round(time.Millisecond),
+		strings.Join(hs, "; "), firstNonEmpty(strings.TrimSpace(string(b)), "(empty)"))
 	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("gateway answered %s: %s", resp.Status, short(string(b), 300))
+		why := strings.TrimSpace(string(b))
+		if why == "" {
+			why = "(the gateway sent no error text; the request is in the server log)"
+		}
+		return fmt.Errorf("gateway answered %s: %s", resp.Status, short(why, 300))
 	}
 	return nil
 }
 
+// logSMSRequest writes the request to the server log the way curl -v shows it, with the
+// password and digest masked.
+func logSMSRequest(req *http.Request, secrets []string) {
+	mask := func(s string) string {
+		for _, x := range secrets {
+			if len(x) >= 3 {
+				s = strings.ReplaceAll(s, x, maskSecret(x))
+			}
+		}
+		return s
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "alerts: SMS request\n  > %s %s", req.Method, mask(req.URL.String()))
+	keys := make([]string, 0, len(req.Header))
+	for k := range req.Header {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		for _, v := range req.Header[k] {
+			if k == "Authorization" && strings.HasPrefix(v, "Basic ") {
+				v = "Basic ****"
+			}
+			fmt.Fprintf(&b, "\n  > %s: %s", k, mask(v))
+		}
+	}
+	if req.GetBody != nil {
+		if rc, err := req.GetBody(); err == nil {
+			body, _ := io.ReadAll(io.LimitReader(rc, 8192))
+			rc.Close()
+			fmt.Fprintf(&b, "\n  > body: %s", mask(string(body)))
+		}
+	}
+	log.Print(b.String())
+}
+
+// maskSecret keeps the first 4 characters and the length: enough to compare with the
+// value in a working script, not enough to reuse it.
+func maskSecret(s string) string {
+	if len(s) <= 6 {
+		return "****"
+	}
+	return fmt.Sprintf("%s…(%d chars)", s[:4], len(s))
+}
+
 func (e *AlertEngine) sendEmail(cfg EmailConfig, to []string, subject, body string) error {
+	err := e.sendEmailOnce(cfg, to, subject, body)
+	if err != nil {
+		log.Printf("alerts: email %q to %s via %s:%d (%s) failed: %v", subject, strings.Join(to, ", "), cfg.Host, cfg.Port, cfg.Security, err)
+	} else {
+		log.Printf("alerts: email %q sent to %s via %s", subject, strings.Join(to, ", "), cfg.Host)
+	}
+	return err
+}
+
+func (e *AlertEngine) sendEmailOnce(cfg EmailConfig, to []string, subject, body string) error {
 	if !cfg.Enabled || cfg.Host == "" || cfg.From == "" {
 		return errors.New("email is not set up (Tools → Alerting → Channels)")
 	}
