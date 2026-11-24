@@ -604,18 +604,7 @@ async function viewPods(route) {
   if (route.q.status) $('#pst').value = route.q.status;
   if (route.q.q) $('#pq').value = route.q.q;
   bindRefresh(ctx, () => render());
-  // refresh-rate picker (top right), remembered across visits
-  const rates = [[1000, '1s'], [5000, '5s'], [10000, '10s'], [30000, '30s'], [60000, '1 min']];
-  let rate = 5000;
-  try { rate = +localStorage.getItem('kd.pods.poll') || 5000; } catch {}
-  if (!rates.some(([ms]) => ms === rate)) rate = 5000;
-  $('.page-head .right').insertAdjacentHTML('afterbegin', `<label class="pollsel" title="How often this page reloads pods from the cluster"><span class="livedot"></span>Refresh
-    <select id="pollRate">${rates.map(([ms, l]) => `<option value="${ms}" ${ms === rate ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`);
-  $('#pollRate').addEventListener('change', e => {
-    rate = +e.target.value;
-    try { localStorage.setItem('kd.pods.poll', String(rate)); } catch {}
-    S.kick?.();
-  });
+  const rate = pollPicker('kd.pods.poll', 'pods');
   const render = async () => {
     const d = await api(`pods?ctx=${enc(ctx)}&ns=${enc(S.ns)}&fresh=1`);
     const up = $('#updated'); if (up) up.textContent = (d.stale ? 'showing cached data · ' : '') + 'updated ' + new Date().toLocaleTimeString();
@@ -638,7 +627,24 @@ async function viewPods(route) {
   };
   $('#pst').addEventListener('change', render);
   $('#pq').addEventListener('input', render);
-  await live(() => rate, render);
+  await live(rate, render);
+}
+
+// pollPicker adds the refresh-rate picker (1s…1 min) to the top right of the page,
+// remembered under `key`, and returns a function giving the current rate in ms.
+function pollPicker(key, what, def = 5000) {
+  const rates = [[1000, '1s'], [5000, '5s'], [10000, '10s'], [30000, '30s'], [60000, '1 min']];
+  let rate = def;
+  try { rate = +localStorage.getItem(key) || def; } catch {}
+  if (!rates.some(([ms]) => ms === rate)) rate = def;
+  $('.page-head .right').insertAdjacentHTML('afterbegin', `<label class="pollsel" title="How often this page reloads ${esc(what)} from the cluster"><span class="livedot"></span>Refresh
+    <select id="pollRate">${rates.map(([ms, l]) => `<option value="${ms}" ${ms === rate ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`);
+  $('#pollRate').addEventListener('change', e => {
+    rate = +e.target.value;
+    try { localStorage.setItem(key, String(rate)); } catch {}
+    S.kick?.();
+  });
+  return () => rate;
 }
 
 async function viewPod(route) {

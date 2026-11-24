@@ -264,7 +264,14 @@ async function viewResource(route) {
         ${/forbidden|RBAC/i.test(e.message) ? '<p class="muted">Your kubeconfig user lacks <code>list</code> permission here. Pick a namespace you can access from the namespace menu, or ask for a Role that includes this resource.</p>' : ''}</div>`;
     }
   };
-  // the table helper links each row; we use explicit anchors instead
+  // Jobs and ExternalSecrets change by the second: a rate picker and a Refresh button, like Pods
+  const fast = (group === 'batch' && resource === 'jobs') || (group === 'external-secrets.io' && resource === 'externalsecrets');
+  if (fast) {
+    $('.page-head .right').insertAdjacentHTML('beforeend', `<button class="btn" id="rRefresh" title="Reload now"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>Refresh</button>`);
+    const rate = pollPicker(`kd.poll.${resource}`, title.toLowerCase());
+    $('#rRefresh').onclick = async e => { const b = e.currentTarget; b.disabled = true; try { await load(); } finally { b.disabled = false; } };
+    return live(rate, load);
+  }
   await load();
   every(20000, async () => { await load(); if (isPvc) measure(false); });
 }
