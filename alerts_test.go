@@ -525,7 +525,7 @@ func TestSMSRequestAndSend(t *testing.T) {
 	defer srv.Close()
 	cfg := SMSConfig{Enabled: true, URL: srv.URL + "/1/smsmessaging/outbound/{{sender}}/requests", Method: "POST", ContentType: "application/json",
 		Auth: "basic", Username: user, Password: pass, ServiceID: "1000000001", Sender: "alerts", LinkID: "L1",
-		Headers: "X-Service: {{service_id}}\nX-Link: {{link_id}}\r\nX-Evil: a\r\n", Body: smsPresets[0]["body"]}
+		Headers: "X-Service: {{service_id}}\nX-Link: {{link_id}}\r\nX-Evil: a\r\n", Body: presetByID("oneapi")["body"]}
 	if err := checkSMS(&cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -807,5 +807,119 @@ func TestAlertAPI(t *testing.T) {
 	_, body = do("GET", "/api/alerts", "")
 	if !strings.Contains(body, `"canEdit":true`) || !strings.Contains(body, `"sms":true`) || !strings.Contains(body, `"pod_crashloop"`) {
 		t.Errorf("overview: %s", body[:min(400, len(body))])
+	}
+}
+
+func presetByID(id string) map[string]string {
+	for _, p := range smsPresets {
+		if p["id"] == id {
+			return p
+		}
+	}
+	return nil
+}
+
+// The Huawei SDP preset with a fixed digest sends exactly what a working curl script sends.
+func TestSMSHuaweiFixedDigest(t *testing.T) {
+	te := newTestEngine(t)
+	var got struct {
+		sync.Mutex
+		h    http.Header
+		body string
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		got.Lock()
+		got.h, got.body = r.Header.Clone(), string(b)
+		got.Unlock()
+		w.WriteHeader(201)
+	}))
+	defer srv.Close()
+	p := presetByID("sdp")
+	if smsPresets[0]["id"] != "sdp" {
+		t.Error("a new SMS form starts from the Huawei SDP preset")
+	}
+	user, _ := te.st.box.seal("gw-user")
+	digest, _ := te.st.box.seal("FIXED+digest/base64=")
+	cfg := SMSConfig{Enabled: true, URL: srv.URL + "/1/smsmessaging/outbound/gw-user/requests", Method: p["method"], ContentType: p["contentType"], Auth: p["auth"],
+		Username: user, ServiceID: "1000000001", Sender: "MyAlert", Headers: p["headers"], Body: p["body"],
+		WSSENonce: "2024012223595900001", WSSECreated: "2024-01-22T23:59:59Z", WSSEDigest: digest}
+	if err := checkSMS(&cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := te.sendSMS(cfg, "8801000000001", `disk "full"`); err != nil {
+		t.Fatal(err)
+	}
+	got.Lock()
+	h, body := got.h, got.body
+	got.Unlock()
+	want := map[string]string{
+		"Authorization":   `WSSE realm="SDP",profile="UsernameToken"`,
+		"X-Wsse":          `UsernameToken Username="gw-user", PasswordDigest="FIXED+digest/base64=", Nonce="2024012223595900001", Created="2024-01-22T23:59:59Z"`,
+		"X-Requestheader": `request ServiceId="1000000001",FA="",PresentId="",LinkId=""`,
+		"Accept":          "application/json",
+		"Content-Type":    "application/json; charset=UTF-8",
+	}
+	for k, v := range want {
+		if h.Get(k) != v {
+			t.Errorf("%s:\n got %q\nwant %q", k, h.Get(k), v)
+		}
+	}
+	if body != `{"outboundSMSMessageRequest":{"address":["8801000000001"],"senderAddress":"MyAlert","outboundSMSTextMessage":{"message":"disk \"full\""}}}` {
+		t.Errorf("body: %s", body)
+	}
+	// without a fixed digest: a fresh one from the password
+	cfg.WSSEDigest, cfg.Password = "", mustSeal(t, te, "pw")
+	if err := te.sendSMS(cfg, "8801000000001", "x"); err != nil {
+		t.Fatal(err)
+	}
+	got.Lock()
+	x := got.h.Get("X-WSSE")
+	got.Unlock()
+	if strings.Contains(x, "2024012223595900001") || strings.Contains(x, "FIXED") {
+		t.Errorf("computed digest expected: %s", x)
+	}
+	if checkSMS(&SMSConfig{URL: "https://x", WSSENonce: `a"b`}) == nil {
+		t.Error("quotes in the nonce are refused")
+	}
+}
+
+func mustSeal(t *testing.T, te *testEngine, s string) string {
+	v, err := te.st.box.seal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func TestChannelDigestWriteOnly(t *testing.T) {
+	s := &Server{reg: &Registry{}}
+	e, err := newAlertEngine(s, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer close(e.stop)
+	s.alerts = e
+	mux := http.NewServeMux()
+	s.alertRoutes(mux)
+	put := func(body string) string {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest("PUT", "/api/alerts/channels/sms", strings.NewReader(body)))
+		if w.Code != 200 {
+			t.Fatalf("%d %s", w.Code, w.Body)
+		}
+		return w.Body.String()
+	}
+	b := put(`{"enabled":true,"url":"https://sms.example/x","auth":"wsse","wsseNonce":"n1","wsseCreated":"c1","wsseDigest":"SECRET-DIGEST"}`)
+	if strings.Contains(b, "SECRET-DIGEST") || !strings.Contains(b, `"wsseDigestSet":true`) || !strings.Contains(b, `"wsseNonce":"n1"`) {
+		t.Errorf("digest is write-only: %s", b)
+	}
+	b = put(`{"enabled":true,"url":"https://sms.example/x","auth":"wsse","wsseNonce":"n1","wsseCreated":"c1"}`)
+	if d, _ := e.st.box.open(e.ch.SMS.WSSEDigest); d != "SECRET-DIGEST" || !strings.Contains(b, `"wsseDigestSet":true`) {
+		t.Error("an empty field keeps the saved digest")
+	}
+	b = put(`{"enabled":true,"url":"https://sms.example/x","auth":"wsse","clearDigest":true}`)
+	if e.ch.SMS.WSSEDigest != "" || !strings.Contains(b, `"wsseDigestSet":false`) || e.ch.SMS.ClearDigest {
+		t.Errorf("clearDigest forgets it: %s", b)
 	}
 }

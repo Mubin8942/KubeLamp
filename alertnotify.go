@@ -41,7 +41,13 @@ type SMSConfig struct {
 	PresentID   string `json:"presentId"`
 	LinkID      string `json:"linkId"`
 	Sender      string `json:"sender"`
-	Headers     string `json:"headers"` // one "Name: value" per line, placeholders allowed
+	// WSSE with a fixed digest (as some gateways are set up): used when WSSEDigest is set,
+	// else a fresh nonce and digest are made from the password for every message
+	WSSENonce   string `json:"wsseNonce"`
+	WSSECreated string `json:"wsseCreated"`
+	WSSEDigest  string `json:"wsseDigest,omitempty"`  // encrypted, never returned
+	ClearDigest bool   `json:"clearDigest,omitempty"` // request only: forget the fixed digest
+	Headers     string `json:"headers"`               // one "Name: value" per line, placeholders allowed
 	Body        string `json:"body"`
 	InsecureTLS bool   `json:"insecureTLS"`
 }
@@ -67,12 +73,11 @@ type Channels struct {
 
 // SMS request presets: a starting point the admin can change on the Channels tab.
 var smsPresets = []map[string]string{
+	{"id": "sdp", "label": "Huawei SDP REST (WSSE headers)", "method": "POST", "contentType": "application/json; charset=UTF-8", "auth": "wsse",
+		"headers": "Accept: application/json\nX-RequestHeader: request ServiceId=\"{{service_id}}\",FA=\"{{fa}}\",PresentId=\"{{present_id}}\",LinkId=\"{{link_id}}\"",
+		"body":    `{"outboundSMSMessageRequest":{"address":["{{to}}"],"senderAddress":"{{sender}}","outboundSMSTextMessage":{"message":"{{message}}"}}}`},
 	{"id": "oneapi", "label": "OneAPI JSON (Basic auth)", "method": "POST", "contentType": "application/json", "auth": "basic",
 		"headers": "Accept: application/json",
-		"body": `{"outboundSMSMessageRequest":{"address":["tel:{{to}}"],"senderAddress":"tel:{{sender}}","senderName":"{{sender}}",` +
-			`"outboundSMSTextMessage":{"message":"{{message}}"},"clientCorrelator":"{{correlator}}"}}`},
-	{"id": "sdp", "label": "Huawei SDP REST (WSSE headers)", "method": "POST", "contentType": "application/json", "auth": "wsse",
-		"headers": "Accept: application/json\nX-RequestHeader: request ServiceId=\"{{service_id}}\", LinkId=\"{{link_id}}\", FA=\"{{fa}}\", PresentId=\"{{present_id}}\"",
 		"body": `{"outboundSMSMessageRequest":{"address":["tel:{{to}}"],"senderAddress":"tel:{{sender}}","senderName":"{{sender}}",` +
 			`"outboundSMSTextMessage":{"message":"{{message}}"},"clientCorrelator":"{{correlator}}"}}`},
 	{"id": "form", "label": "Form POST", "method": "POST", "contentType": "application/x-www-form-urlencoded", "auth": "none", "headers": "",
@@ -230,13 +235,20 @@ func (e *AlertEngine) buildSMSRequest(ctx context.Context, cfg SMSConfig, to, te
 	created := time.Now().UTC().Format("2006-01-02T15:04:05Z")
 	nonceS := hex.EncodeToString(nonce)
 	digest := sha256.Sum256([]byte(nonceS + created + pass))
+	digestS := base64.StdEncoding.EncodeToString(digest[:])
+	if cfg.WSSEDigest != "" { // the fixed values the gateway was set up with
+		if digestS, err = e.st.box.open(cfg.WSSEDigest); err != nil {
+			return nil, err
+		}
+		nonceS, created = cfg.WSSENonce, cfg.WSSECreated
+	}
 	corr := make([]byte, 8)
 	_, _ = rand.Read(corr)
 	vars := map[string]string{
 		"to": to, "to_plain": strings.TrimPrefix(to, "+"), "message": text, "sender": cfg.Sender, "username": user, "password": pass,
 		"service_id": cfg.ServiceID, "fa": cfg.FA, "present_id": cfg.PresentID, "link_id": cfg.LinkID,
 		"correlator": hex.EncodeToString(corr), "wsse_nonce": nonceS, "wsse_created": created,
-		"wsse_digest": base64.StdEncoding.EncodeToString(digest[:]),
+		"wsse_digest": digestS,
 	}
 	var esc func(string) string
 	switch {
@@ -262,9 +274,9 @@ func (e *AlertEngine) buildSMSRequest(ctx context.Context, cfg SMSConfig, to, te
 	case "basic":
 		req.SetBasicAuth(user, pass)
 	case "wsse":
-		req.Header.Set("Authorization", `WSSE realm="SDP", profile="UsernameToken", type="Appkey"`)
+		req.Header.Set("Authorization", `WSSE realm="SDP",profile="UsernameToken"`) // add type="Appkey" in Extra headers if a gateway wants it
 		req.Header.Set("X-WSSE", fmt.Sprintf(`UsernameToken Username="%s", PasswordDigest="%s", Nonce="%s", Created="%s"`,
-			noCRLF(user), vars["wsse_digest"], nonceS, created))
+			noCRLF(user), digestS, noCRLF(nonceS), noCRLF(created)))
 	}
 	for _, line := range strings.Split(cfg.Headers, "\n") {
 		k, v, ok := strings.Cut(line, ":")

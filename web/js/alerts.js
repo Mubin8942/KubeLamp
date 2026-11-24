@@ -226,7 +226,8 @@ async function viewAlerts(route) {
     if (!edit && set) {
       const rows = isSms ? [['Status', c.enabled ? stLabel('on', 'good') : stLabel('off', 'warning')], ['Gateway', `<span class="mono">${esc(c.url)}</span>`], ['Request', esc(`${c.method} · ${c.contentType || 'no body type'} · auth ${c.auth}`)],
         ['Sender', esc(c.sender || '—')], ['Service ID', esc(c.serviceId || '—')], ['FA / Present ID / Link ID', esc([c.fa || '—', c.presentId || '—', c.linkId || '—'].join(' / '))],
-        ['Username', c.usernameSet ? '•••••• <span class="muted">set</span>' : '<span class="muted">not set</span>'], ['Password', c.passwordSet ? '•••••• <span class="muted">set</span>' : '<span class="muted">not set</span>']]
+        ['Username', c.usernameSet ? '•••••• <span class="muted">set</span>' : '<span class="muted">not set</span>'], ['Password', c.passwordSet ? '•••••• <span class="muted">set</span>' : '<span class="muted">not set</span>'],
+        ...(c.auth === 'wsse' ? [['WSSE digest', c.wsseDigestSet ? `fixed (•••••• set) · nonce <span class="mono">${esc(c.wsseNonce)}</span> · created <span class="mono">${esc(c.wsseCreated)}</span>` : 'made from the password for every message']] : [])]
         : [['Status', c.enabled ? stLabel('on', 'good') : stLabel('off', 'warning')], ['Server', `<span class="mono">${esc(c.host)}:${esc(c.port || (c.security === 'tls' ? 465 : c.security === 'none' ? 25 : 587))}</span>`], ['Security', esc(c.security.toUpperCase())],
         ['From', esc(c.fromName ? `${c.fromName} <${c.from}>` : c.from)], ['Username', c.usernameSet ? '•••••• <span class="muted">set</span>' : '<span class="muted">not set</span>'], ['Password', c.passwordSet ? '•••••• <span class="muted">set</span>' : '<span class="muted">not set</span>']];
       el.innerHTML = `<div class="card-head"><h3>${title}</h3><span class="cap">changed ${age(chans.updated)} ago by ${esc(chans.updatedBy || '—')}</span></div>
@@ -245,8 +246,9 @@ async function viewAlerts(route) {
       };
       return;
     }
-    const f = (key, label, ph = '', cls = '') => `<label class="ct-f ${cls}"><span>${esc(label)}</span><input type="text" data-k="${key}" value="${esc(c[key] ?? '')}" placeholder="${esc(ph)}" spellcheck="false"></label>`;
-    const secret = (key, label) => `<label class="ct-f"><span>${esc(label)}</span><input type="${key === 'password' ? 'password' : 'text'}" data-k="${key}" autocomplete="new-password" placeholder="${c[key + 'Set'] ? '•••••• saved: leave empty to keep' : ''}" spellcheck="false"></label>`;
+    if (isSms && !set) { const p = chans.presets[0]; Object.assign(c, { method: p.method, contentType: p.contentType, auth: p.auth, headers: p.headers, body: p.body }); }
+    const f = (key, label, ph = '', cls = '') => `<label class="ct-f ${cls}"><span>${esc(label)}</span><input type="text" data-k="${key}" value="${esc(c[key] || '')}" placeholder="${esc(ph)}" spellcheck="false"></label>`;
+    const secret = (key, label) => `<label class="ct-f"><span>${esc(label)}</span><input type="${key === 'username' ? 'text' : 'password'}" data-k="${key}" autocomplete="new-password" placeholder="${c[key + 'Set'] ? '•••••• saved: leave empty to keep' : ''}" spellcheck="false"></label>`;
     const sel = (key, label, opts) => `<label class="ct-f"><span>${esc(label)}</span><select data-k="${key}">${opts.map(([v, l]) => `<option value="${v}" ${String(c[key] || '') === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
     el.innerHTML = `<div class="card-head"><h3>${title}</h3><span class="cap">${set ? 'editing' : 'not set up'}</span></div>
       <div class="al-grid">
@@ -256,8 +258,13 @@ async function viewAlerts(route) {
         ${SMS_FIELDS.map(([k, l, ph, cls]) => f(k, l, ph, cls === 'wide' ? 'al-full' : '')).join('')}
         ${secret('username', 'Username')}${secret('password', 'Password')}
         ${sel('method', 'Method', [['POST', 'POST'], ['GET', 'GET'], ['PUT', 'PUT']])}
-        ${sel('contentType', 'Body type', [['application/json', 'JSON'], ['application/x-www-form-urlencoded', 'Form'], ['text/plain', 'Plain text'], ['', 'None']])}
-        ${sel('auth', 'Authentication', [['basic', 'Basic (username + password)'], ['wsse', 'WSSE digest (Huawei SDP)'], ['none', 'None (in the body or URL)']])}
+        ${sel('contentType', 'Body type', [['application/json; charset=UTF-8', 'JSON (UTF-8)'], ['application/json', 'JSON'], ['application/x-www-form-urlencoded', 'Form'], ['text/plain', 'Plain text'], ['', 'None']])}
+        ${sel('auth', 'Authentication', [['wsse', 'WSSE digest (Huawei SDP)'], ['basic', 'Basic (username + password)'], ['none', 'None (in the body or URL)']])}
+        <div class="al-full al-grid al-wsse" id="alWsse">
+          <div class="al-full muted">WSSE digest: leave these empty to make a fresh nonce and digest from the password for every message. If your gateway was set up with fixed values (as in a script that always sends the same Nonce, Created and PasswordDigest), enter them here.</div>
+          ${f('wsseNonce', 'Fixed nonce', 'e.g. 2024012223595900001')}${f('wsseCreated', 'Fixed created', 'e.g. 2024-01-22T23:59:59Z')}${secret('wsseDigest', 'Fixed password digest')}
+          ${c.wsseDigestSet ? '<label class="ck al-full"><input type="checkbox" data-k="clearDigest"> Forget the fixed digest and make it from the password</label>' : ''}
+        </div>
         <label class="ct-f al-full"><span>Extra headers <small class="muted">one “Name: value” per line</small></span><textarea data-k="headers" rows="3" spellcheck="false">${esc(c.headers || '')}</textarea></label>
         <label class="ct-f al-full"><span>Body</span><textarea data-k="body" rows="5" spellcheck="false">${esc(c.body || chans.presets[0].body)}</textarea></label>
         <div class="al-full muted al-vars">Placeholders: ${AL_SMS_VARS.map(v => `<code>{{${v}}}</code>`).join(' ')}. Values are escaped for the body type.</div>
@@ -268,16 +275,20 @@ async function viewAlerts(route) {
         <label class="ck al-full"><input type="checkbox" data-k="insecureTLS" ${c.insecureTLS ? 'checked' : ''}> Skip TLS certificate check (internal server with a private certificate)</label>`}
       </div><div class="err-line" data-err></div>
       <div class="al-row"><button class="btn primary" data-save>Save</button>${set ? '<button class="btn ghost" data-cancel>Cancel</button>' : ''}</div>`;
+    const wsse = () => { const w = $('#alWsse', el); if (w) w.hidden = $('[data-k="auth"]', el).value !== 'wsse'; };
+    $('[data-k="auth"]', el)?.addEventListener('change', wsse);
     $('#alPreset', el)?.addEventListener('change', e => {
       const p = chans.presets.find(x => x.id === e.target.value);
       if (!p) return;
       $('[data-k="method"]', el).value = p.method; $('[data-k="contentType"]', el).value = p.contentType; $('[data-k="auth"]', el).value = p.auth;
       $('[data-k="headers"]', el).value = p.headers; $('[data-k="body"]', el).value = p.body;
+      wsse();
     });
+    wsse();
     $('[data-cancel]', el)?.addEventListener('click', () => chanCard(kind));
     $('[data-save]', el).onclick = async e => {
       const body = {};
-      $$('[data-k]', el).forEach(i => { body[i.dataset.k] = i.type === 'checkbox' ? i.checked : i.value.trim(); });
+      $$('[data-k]', el).forEach(i => { body[i.dataset.k] = i.type === 'checkbox' ? i.checked : i.dataset.k === 'password' ? i.value : i.value.trim(); });
       if (!isSms) body.port = +body.port || 0;
       const b = e.currentTarget; b.disabled = true;
       try { chans = await send('PUT', 'alerts/channels/' + kind, body); toast(`${title} saved`); await refresh(true); chanCard(kind); }

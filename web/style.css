@@ -116,7 +116,7 @@ main { grid-column: 2; overflow: auto; padding: 22px 28px 48px; min-width: 0; ou
 .icon-btn { width: 28px; height: 28px; display: inline-grid; place-items: center; border-radius: 7px; border: 0; background: none; color: var(--muted); cursor: pointer; }
 .icon-btn:hover { background: var(--hover); color: var(--ink); }
 .icon-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-input[type=text], input[type=search], input[type=number], select, textarea {
+input[type=text], input[type=search], input[type=number], input[type=password], input[type=time], select, textarea {
   height: 32px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--bg); padding: 0 10px; outline: none; min-width: 0;
 }
 textarea { height: auto; padding: 8px 10px; }
@@ -418,7 +418,7 @@ ul.attn-list li.more { padding-left: 16px; }
 .ct-row { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-end; }
 .ct-f { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: var(--ink-2); min-width: 0; }
 .ct-f small { font-size: 11.5px; }
-.ct-f textarea, .ct-f input[type=text] { width: 100%; font-family: var(--mono); font-size: 13px; }
+.ct-f textarea, .ct-f input[type=text], .ct-f input[type=password] { width: 100%; font-family: var(--mono); font-size: 13px; }
 .ct-f select { min-width: 180px; }
 .ct-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 4px 14px; max-height: 170px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--raised); }
 .ct-opts { align-items: center; }
@@ -709,7 +709,7 @@ html.glass .pop, html.glass .tip, html.glass dialog, html.glass .toast {
 html.glass[data-theme="light"] .pop, html.glass[data-theme="light"] .tip, html.glass[data-theme="light"] dialog { background: rgba(255,255,255,.78); border-color: rgba(17,30,48,.1); }
 html.glass dialog::backdrop { background: rgba(5,9,14,.35); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
 html.glass .btn:not(.primary):not(.ghost):not(.on):not(.danger.solid), html.glass .picker, html.glass .chip, html.glass .set-mode, html.glass .nsv-count, html.glass .rt-be { background: var(--glass-2); }
-html.glass input[type=text], html.glass input[type=search], html.glass input[type=number], html.glass select, html.glass textarea { background: var(--glass-2); }
+html.glass input[type=text], html.glass input[type=search], html.glass input[type=number], html.glass input[type=password], html.glass input[type=time], html.glass select, html.glass textarea { background: var(--glass-2); }
 html.glass .btn.primary { box-shadow: 0 4px 14px rgba(var(--accent-rgb, 50,108,229), .35), inset 0 1px 0 rgba(255,255,255,.22); }
 html.glass .nav-a.on, html.glass .rail-b.on { background: linear-gradient(90deg, rgba(var(--accent-rgb, 50,108,229), .24), rgba(var(--accent-rgb, 50,108,229), .06)); }
 html.glass .set-demo { background: var(--glass-2); }
@@ -910,7 +910,7 @@ textarea.pds-yaml { width: 100%; font: 12.5px/1.5 var(--mono); resize: vertical;
 .al-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px 16px; align-items: start; }
 .al-full { grid-column: 1 / -1; }
 .al-grid .ct-f select, .al-grid .ct-f .dd { min-width: 0; width: 100%; }
-.al-grid textarea, .al-grid input[type=text], .al-grid input[type=number] { width: 100%; }
+.al-grid textarea, .al-grid input[type=text], .al-grid input[type=password], .al-grid input[type=number] { width: 100%; }
 .al-inl { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .al-inl .dd { width: auto !important; }
 .al-p { margin: -4px 0 10px; }
@@ -943,3 +943,5 @@ label.ck input { accent-color: var(--accent); }
 .sw input:focus-visible + i { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (max-width: 640px) { .al-ch { grid-template-columns: 1fr; } .al-kv { grid-template-columns: 1fr; } }
 .ct-f .seg { align-self: flex-start; }
+.al-wsse { padding: 12px; border: 1px dashed var(--line-2); border-radius: 10px; }
+.al-wsse[hidden] { display: none; }

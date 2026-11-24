@@ -29,8 +29,9 @@ type ruleView struct {
 
 type smsView struct {
 	SMSConfig
-	UsernameSet bool `json:"usernameSet"`
-	PasswordSet bool `json:"passwordSet"`
+	UsernameSet   bool `json:"usernameSet"`
+	PasswordSet   bool `json:"passwordSet"`
+	WSSEDigestSet bool `json:"wsseDigestSet"`
 }
 
 type emailView struct {
@@ -43,8 +44,8 @@ func (e *AlertEngine) channelsView() map[string]any {
 	e.mu.Lock()
 	ch := e.ch
 	e.mu.Unlock()
-	sms := smsView{SMSConfig: ch.SMS, UsernameSet: ch.SMS.Username != "", PasswordSet: ch.SMS.Password != ""}
-	sms.Username, sms.Password = "", ""
+	sms := smsView{SMSConfig: ch.SMS, UsernameSet: ch.SMS.Username != "", PasswordSet: ch.SMS.Password != "", WSSEDigestSet: ch.SMS.WSSEDigest != ""}
+	sms.Username, sms.Password, sms.WSSEDigest = "", "", ""
 	em := emailView{EmailConfig: ch.Email, UsernameSet: ch.Email.Username != "", PasswordSet: ch.Email.Password != ""}
 	em.Username, em.Password = "", ""
 	return map[string]any{"sms": sms, "email": em, "updated": ch.Updated, "updatedBy": ch.UpdatedBy, "presets": smsPresets}
@@ -419,6 +420,12 @@ func (s *Server) alertRoutes(mux *http.ServeMux) {
 			if c.Username, err = seal(c.Username, ch.SMS.Username); err == nil {
 				c.Password, err = seal(c.Password, ch.SMS.Password)
 			}
+			if err == nil && !c.ClearDigest {
+				c.WSSEDigest, err = seal(c.WSSEDigest, ch.SMS.WSSEDigest)
+			} else if err == nil {
+				c.WSSEDigest, c.WSSENonce, c.WSSECreated = "", "", ""
+			}
+			c.ClearDigest = false
 			ch.SMS = c
 		case "email":
 			var c EmailConfig
@@ -580,6 +587,10 @@ func checkSMS(c *SMSConfig) error {
 	}
 	if !contains([]string{"none", "basic", "wsse"}, c.Auth) {
 		return errors.New("authentication must be none, basic or wsse")
+	}
+	c.WSSENonce, c.WSSECreated = strings.TrimSpace(c.WSSENonce), strings.TrimSpace(c.WSSECreated)
+	if strings.ContainsAny(c.WSSENonce+c.WSSECreated+c.WSSEDigest, "\r\n\"") {
+		return errors.New("nonce, created and digest must not contain quotes or line breaks")
 	}
 	if strings.ContainsAny(c.ContentType, "\r\n") || len(c.Body) > 8000 || len(c.Headers) > 4000 {
 		return errors.New("content type, headers or body are not valid")
