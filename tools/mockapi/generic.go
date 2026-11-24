@@ -152,6 +152,9 @@ func (c *cluster) initGeneric() {
 				"spec": obj{"refreshInterval": "1h", "secretStoreRef": obj{"name": "vault-backend", "kind": "ClusterSecretStore"},
 					"target": obj{"name": "payments-db-credentials"}, "dataFrom": []obj{{"extract": obj{"key": "kv/payments/db"}}}},
 				"status": obj{"conditions": []obj{{"type": "Ready", "status": "True", "reason": "SecretSynced"}}}},
+			obj{"apiVersion": "external-secrets.io/v1beta1", "kind": "ExternalSecret", "metadata": meta("payments", "ledger-api-keys", nil),
+				"spec":   obj{"refreshInterval": "1h", "secretStoreRef": obj{"name": "vault-backend", "kind": "ClusterSecretStore"}, "target": obj{"name": "ledger-api-keys"}},
+				"status": obj{"conditions": []obj{{"type": "Ready", "status": "False", "reason": "SecretSyncedError", "message": "could not get secret data from provider: permission denied"}}}},
 		)},
 		{"batch", "v1", "cronjobs", "CronJob", true, mk(
 			obj{"apiVersion": "batch/v1", "kind": "CronJob", "metadata": meta("payments", "settlement-report", nil),
@@ -160,6 +163,9 @@ func (c *cluster) initGeneric() {
 		{"batch", "v1", "jobs", "Job", true, mk(
 			obj{"apiVersion": "batch/v1", "kind": "Job", "metadata": meta("payments", "settlement-report-29371234", nil),
 				"spec": obj{"completions": 1}, "status": obj{"succeeded": 1}},
+			obj{"apiVersion": "batch/v1", "kind": "Job", "metadata": meta("payments", "settlement-report-29371300", nil),
+				"spec": obj{"completions": 1}, "status": obj{"failed": 1, "conditions": []obj{{"type": "Failed", "status": "True", "reason": "BackoffLimitExceeded",
+					"message": "Job has reached the specified backoff limit", "lastTransitionTime": time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)}}}},
 		)},
 		{"autoscaling", "v2", "horizontalpodautoscalers", "HorizontalPodAutoscaler", true, mk(
 			obj{"apiVersion": "autoscaling/v2", "kind": "HorizontalPodAutoscaler", "metadata": meta("ott-streaming", "binge-catalog", nil),

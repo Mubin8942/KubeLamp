@@ -26,6 +26,7 @@ type Server struct {
 	reg        *Registry    // clusters when user accounts are off (tests only)
 	users      *UserStore   // user accounts; each user has their own clusters
 	nodeIPs    *NodeIPStore // external node IPs set by admins
+	alerts     *AlertEngine // alert rules and sending (nil when it could not start)
 	dataDir    string
 	localOnly  bool
 	readOnly   bool
@@ -471,6 +472,7 @@ func (s *Server) routes() http.Handler {
 	s.connRoutes(mux)
 	s.ftRoutes(mux)
 	s.dnsRoutes(mux)
+	s.alertRoutes(mux)
 
 	mux.HandleFunc("GET /api/info", func(w http.ResponseWriter, r *http.Request) {
 		_, kerr := exec.LookPath("kubectl")

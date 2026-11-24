@@ -113,6 +113,12 @@ func main() {
 	}
 	srv := &Server{reg: &Registry{}, users: users, nodeIPs: openNodeIPs(dataDir), dataDir: dataDir, localOnly: local, readOnly: *readOnly, allowShell: *allowShell,
 		ftMaxDown: int64(*maxDown) << 20, ftMaxUp: int64(*maxUp) << 20, ftRate: int64(*xferRate) << 20}
+	if ae, err := newAlertEngine(srv, dataDir); err != nil {
+		log.Printf("alerting is off: %v", err)
+	} else {
+		srv.alerts = ae
+		go ae.run()
+	}
 	srv.quit = func() {
 		log.Println("quit requested from the UI")
 		time.Sleep(200 * time.Millisecond)

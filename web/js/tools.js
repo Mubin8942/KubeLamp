@@ -1,8 +1,9 @@
 'use strict';
 /* Tools menu (top bar) and the tools it opens. Add a tool by appending to TOOLS. */
 
-const TOOL_GROUPS = ['Networking', 'Files'];
+const TOOL_GROUPS = ['Monitoring', 'Networking', 'Files'];
 const TOOLS = [
+  { id: 'alerts', group: 'Monitoring', name: 'Alerting', desc: 'SMS and email alerts for crashing pods, unavailable workloads, failed jobs, high CPU or memory, nodes, volumes and more.', view: viewAlerts },
   { id: 'conntest', group: 'Networking', name: 'Pod Connectivity Inspector', desc: 'Test TCP/HTTP reach from pods to IPs, ports and domains, and check network policies.', needsExec: true, view: viewConnTest },
   { id: 'dns', group: 'Networking', name: 'DNS Checker', desc: 'Resolve names from inside pods and compare the IPs each pod gets, with the pod\'s DNS settings.', needsExec: true, view: viewDnsCheck },
   { id: 'files', group: 'Files', name: 'File Transfer', desc: 'Download logs and assets from pods and upload files into mounted volumes, with size limits.', needsExec: true, view: viewFileTransfer },
