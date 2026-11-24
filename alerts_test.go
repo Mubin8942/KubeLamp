@@ -962,3 +962,12 @@ func TestSMSLogMasksSecrets(t *testing.T) {
 type writerFunc func([]byte) (int, error)
 
 func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
+
+func TestSMSEmptySenderRefusedAtSend(t *testing.T) {
+	te := newTestEngine(t)
+	p := presetByID("sdp")
+	cfg := SMSConfig{Enabled: true, URL: "https://sms.example/x", Auth: "none", ContentType: p["contentType"], Body: p["body"]} // saved before the check existed
+	if err := te.sendSMS(cfg, "8801000000001", "x"); err == nil || !strings.Contains(err.Error(), "Sender is empty") {
+		t.Errorf("got %v", err)
+	}
+}

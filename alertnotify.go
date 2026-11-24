@@ -225,6 +225,9 @@ func (e *AlertEngine) buildSMSRequest(ctx context.Context, cfg SMSConfig, to, te
 	if !cfg.Enabled || cfg.URL == "" {
 		return nil, nil, errors.New("SMS is not set up (Tools → Alerting → Channels)")
 	}
+	if strings.TrimSpace(cfg.Sender) == "" && strings.Contains(cfg.URL+cfg.Headers+cfg.Body, "{{sender}}") {
+		return nil, nil, errors.New("Sender is empty but the request uses {{sender}}: set Sender in Tools → Alerting → Channels → SMS")
+	}
 	user, err := e.st.box.open(cfg.Username)
 	if err != nil {
 		return nil, nil, err
